@@ -1,0 +1,21 @@
+| Star Name            | Right Ascension | Declination  | Modern Name  |
+|----------------------+-----------------+--------------+--------------|
+| Canis Maior          | 101.287155      | -16.7161167  | Sirius       |
+| Canis Minor          | 114.8254167     | 5.0247222    | Procyon      |
+| Sinister pes Orionis | 78.634467       | -8.2016384   | Rigel        |
+| Scapula Orionis      | 88.7929392      | 7.4070639    | Betelgeuse   |
+| Oculus Tauri         | 68.9801626      | 16.5093024   | Aldebaran    |
+| Lucida Hydrae        | 141.8976804     | -8.6586025   | Alphard      |
+| Cor Leonis           | 152.0887967     | 11.9672083   | Regulus      |
+| Spica                | 201.2982458     | -11.1613194  | Spica        |
+| Cauda Ceti           | 10.8973788      | -17.986606   | Deneb Kaitos |
+| Hircus               | 79.1723271      | 45.9979915   | Capella      |
+| Cauda Leonis         | 178.764075      | 14.5720583   | Denebola     |
+| Caput Medusae        | 47.0413833      | 40.9556472   | Algol        |
+| Umbilicus Pegasi     | 345.7735542     | 15.2052667   | Markab       |
+| Cauda Cigni          | 310.3579792     | 45.2803389   | Deneb        |
+| Lira                 | 279.2355667     | 38.7836889   | Vega         |
+| Arcturus             | 213.9153        | 19.1824083   | Arcturus     |
+| Aquila               | 297.6958292     | 8.8683222    | Altair       |
+| Ursa Maior           | 206.8851583     | 49.3132667   | Alkaid       |
+| Pectus               | 10.1258333      | 56.5373611   | Schedar      |

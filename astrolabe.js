@@ -10,10 +10,13 @@
  *
  * Every component lives on its own layer:
  *
- *     Equator, Tropic_Cancer, Tropic_Capricorn, Horizon, Almucantars, Azimuth,
+ *     Equator, Tropic_Cancer, Tropic_Capricorn, Horizon, Almucantars,
+ *     Twilight (civil / nautical / astronomical, altitude -6/-12/-18),
+ *     Unequal_Hours (12 temporal hours of the night), Azimuth,
  *     Ecliptic (a single line, the only circle of the band),
  *     Ecliptic_Calendar (365 days / 12 months, outside that line),
  *     Ecliptic_Zodiac (equal zodiac, 1 degree scale, inside that line),
+ *     Rete (19 star pointers with their Latin names),
  *     Index (base line + declination scale), Limb (360 degree scale standing
  *     on the Tropic of Capricorn)
  *
@@ -39,7 +42,10 @@
  *   - Almucantar of altitude a: its two intersections with the meridian lie at
  *     signed polar distances (180 - phi - a) and (a - phi); the circle has
  *     these two points as a diameter.  a = 0 is the horizon (centre
- *     R_eq/tan(phi), radius R_eq/sin(phi)).
+ *     R_eq/tan(phi), radius R_eq/sin(phi)); negative altitudes give the
+ *     twilight curves.
+ *   - Unequal hour k: the circle through the points dividing the night arc of
+ *     Capricorn, Equator and Cancer at k/12 (cos H0 = -tan(phi) tan(dec)).
  *   - Azimuth circle: passes through zenith and nadir and the horizon point of
  *     that azimuth (computed with the horizontal -> equatorial transform).
  *   - Ecliptic: circle through the solstice points r(90-eps) and r(90+eps);
@@ -51,6 +57,8 @@
  *     both index the same rays out of the ecliptic centre, the calendar drawn
  *     outwards (Re .. Re + calOut), the zodiac inwards (Re - zodIn .. Re).  No
  *     further circle is drawn for either scale.
+ *   - Star: r = R_eq tan((90 - dec)/2) at the rete angle of its right
+ *     ascension (RA 0 to +X), so only stars north of -eps fit on the plate.
  *   - Index: declination scale at radii r(90 - dec) along the index edge.
  *
  * Orientation: +Y is the upper meridian (towards the zenith side), +X is
@@ -67,13 +75,14 @@ include("scripts/EAction.js");
     // =======================================================================
     var cfg = {
         diameter: 200.0,        // diameter of Tropic of Capricorn (drawing units)
-        latitude: 50.0,         // observer latitude, degrees north (1 .. 89)
+        latitude: 49.2,         // observer latitude, degrees north (1 .. 89)
         askUser: true,          // show input dialogs for diameter / latitude
 
         obliquity: 23.4393,     // obliquity of the ecliptic, degrees
         almucantarStep: 5,      // degrees between almucantars
         almucantarLabelStep: 10,// label every n degrees of altitude (0 = none)
         azimuthStep: 10,        // degrees between azimuth lines
+        twilights: [-6, -12, -18],// solar depressions: civil / nautical / astronomical
         calendarYear: 2026,     // reference (non-leap) year for the 365 day calendar
 
         limbClockwise: true,    // limb 0 deg at top, increasing clockwise
@@ -90,12 +99,39 @@ include("scripts/EAction.js");
         ["Tropic_Capricorn",  [ 30,  90, 230]],
         ["Horizon",           [220,   0,   0]],
         ["Almucantars",       [  0, 150, 190]],
+        ["Twilight",          [ 70,  70, 170]],
+        ["Unequal_Hours",     [  0, 120, 100]],
         ["Azimuth",           [150,  60, 200]],
         ["Ecliptic",          [200, 160,   0]],
         ["Ecliptic_Zodiac",   [190, 100,  20]],
         ["Ecliptic_Calendar", [120, 120,  20]],
+        ["Rete",              [150,  20,  60]],
         ["Index",             [230,  40, 140]],
         ["Limb",              [ 90,  90,  90]]
+    ];
+
+    // 19 traditional astrolabe stars: Latin name, RA, declination (J2000,
+    // degrees).  Source: data/stars.txt; the modern name is in the comment.
+    var STARS = [
+        ["Canis Maior",           101.2871550, -16.7161167],  // Sirius
+        ["Canis Minor",           114.8254167,   5.0247222],  // Procyon
+        ["Sinister pes Orionis",   78.6344670,  -8.2016384],  // Rigel
+        ["Scapula Orionis",        88.7929392,   7.4070639],  // Betelgeuse
+        ["Oculus Tauri",           68.9801626,  16.5093024],  // Aldebaran
+        ["Lucida Hydrae",         141.8976804,  -8.6586025],  // Alphard
+        ["Cor Leonis",            152.0887967,  11.9672083],  // Regulus
+        ["Spica",                 201.2982458, -11.1613194],  // Spica
+        ["Cauda Ceti",             10.8973788, -17.9866060],  // Deneb Kaitos
+        ["Hircus",                 79.1723271,  45.9979915],  // Capella
+        ["Cauda Leonis",          178.7640750,  14.5720583],  // Denebola
+        ["Caput Medusae",          47.0413833,  40.9556472],  // Algol
+        ["Umbilicus Pegasi",      345.7735542,  15.2052667],  // Markab
+        ["Cauda Cigni",           310.3579792,  45.2803389],  // Deneb
+        ["Lira",                  279.2355667,  38.7836889],  // Vega
+        ["Arcturus",              213.9153000,  19.1824083],  // Arcturus
+        ["Aquila",                297.6958292,   8.8683222],  // Altair
+        ["Ursa Maior",            206.8851583,  49.3132667],  // Alkaid
+        ["Pectus",                 10.1258333,  56.5373611]  // Schedar
     ];
 
     var PI = Math.PI;
@@ -154,6 +190,12 @@ include("scripts/EAction.js");
         var cdsH = Math.cos(h) * Math.sin(A);
         var cdcH = Math.cos(h) * Math.cos(A) * Math.sin(f) + Math.sin(h) * Math.cos(f);
         return plateFromEq(Math.asin(sinD), Math.atan2(cdsH, cdcH));
+    }
+
+    // equatorial (RA, declination; degrees) -> plate position in the rete's
+    // orientation: RA 0 towards +X (Aries right), RA 90 towards +Y (Cancer up)
+    function plateFromRaDec(raDeg, decDeg) {
+        return plateFromEq(rad(decDeg), PI / 2 - rad(raDeg));
     }
 
     // ecliptic longitude (deg) -> plate position, rete turned so Cancer is at +Y
@@ -328,18 +370,90 @@ include("scripts/EAction.js");
         var r = Math.abs(y1 - y2) / 2;
         if (r < 1e-9) { addCircle(layer, 0, y1, 0.006 * Rc); return; }   // zenith
         addArcClipped(layer, 0, (y1 + y2) / 2, r, 0, TWO_PI);
-        return y1;
+        return { top: y1, bot: y2 };
     }
     almucantar("Horizon", 0);
     var labelH = 0.016 * Rc;
     for (var a = cfg.almucantarStep; a <= 90 + 1e-9; a += cfg.almucantarStep) {
-        var yTop = almucantar("Almucantars", a);
-        if (cfg.almucantarLabelStep > 0 && yTop !== undefined &&
+        var alm = almucantar("Almucantars", a);
+        if (cfg.almucantarLabelStep > 0 && alm !== undefined &&
             Math.abs(a / cfg.almucantarLabelStep - Math.round(a / cfg.almucantarLabelStep)) < 1e-9 &&
-            a < 90 && yTop < Rc - 2 * labelH) {
-            addText("Almucantars", 1.2 * labelH, yTop + 0.8 * labelH, labelH, Math.round(a), 0);
+            a < 90 && alm.top < Rc - 2 * labelH) {
+            addText("Almucantars", 1.2 * labelH, alm.top + 0.8 * labelH, labelH, Math.round(a), 0);
         }
     }
+
+    // =======================================================================
+    // 2b. TWILIGHT: almucantars of negative altitude (Sun below the horizon)
+    // =======================================================================
+    // For a < 0 the upper meridian crossing falls outside the plate, so each
+    // curve is labelled at its lower crossing, which is always inside it
+    // (|y| = Req * tan((phi + |a|) / 2) <= Req * tan(53.5 deg) < Rc).
+    for (var ti = 0; ti < cfg.twilights.length; ti++) {
+        var tw = almucantar("Twilight", cfg.twilights[ti]);
+        if (tw !== undefined) {
+            addText("Twilight", 1.2 * labelH, tw.bot - 0.8 * labelH, labelH, cfg.twilights[ti], 0);
+        }
+    }
+
+    // =======================================================================
+    // 2c. UNEQUAL (TEMPORAL) HOURS
+    // =======================================================================
+    // The night is divided into 12 equal parts on each of Capricorn, Equator
+    // and Cancer; the traditional construction then joins the three matching
+    // division points with the circle through them (an approximation of the
+    // true locus, exact at those three points).  Hour 6 is the lower meridian,
+    // where the three points are collinear and the line is straight.
+    (function drawUnequalHours() {
+        var decs = [-eps, 0, eps];                       // Capricorn, Equator, Cancer
+        var nightStart = [], nightArc = [];
+        for (var i = 0; i < 3; i++) {
+            var c = -Math.tan(rad(phi)) * Math.tan(rad(decs[i]));
+            if (Math.abs(c) >= 1) {                      // circumpolar: no sunset/sunrise
+                log("Astrolabe: unequal hours skipped - at latitude " + phi +
+                    " the declination circle " + decs[i].toFixed(2) + " never rises or sets");
+                return;
+            }
+            nightStart.push(Math.acos(c));               // hour angle of setting
+            nightArc.push(TWO_PI - 2 * Math.acos(c));    // night, in hour angle
+        }
+        // division point k/12 of the night on reference circle i
+        function pt(i, k) {
+            return plateFromEq(rad(decs[i]), nightStart[i] + k * nightArc[i] / 12);
+        }
+        function circleThrough(p1, p2, p3) {
+            var d = 2 * (p1.x * (p2.y - p3.y) + p2.x * (p3.y - p1.y) + p3.x * (p1.y - p2.y));
+            if (Math.abs(d) < 1e-9 * Rc * Rc) { return null; }          // collinear
+            var s1 = p1.x * p1.x + p1.y * p1.y, s2 = p2.x * p2.x + p2.y * p2.y,
+                s3 = p3.x * p3.x + p3.y * p3.y;
+            var cx = (s1 * (p2.y - p3.y) + s2 * (p3.y - p1.y) + s3 * (p1.y - p2.y)) / d;
+            var cy = (s1 * (p3.x - p2.x) + s2 * (p1.x - p3.x) + s3 * (p2.x - p1.x)) / d;
+            var r = Math.sqrt((p1.x - cx) * (p1.x - cx) + (p1.y - cy) * (p1.y - cy));
+            return (r > 100 * Rc) ? null : { x: cx, y: cy, r: r };      // too flat to be an arc
+        }
+        for (var k = 1; k <= 11; k++) {
+            var pCap = pt(0, k), pEq = pt(1, k), pCan = pt(2, k);
+            var c = circleThrough(pCap, pEq, pCan);
+            if (!c) { addLine("Unequal_Hours", pCap.x, pCap.y, pCan.x, pCan.y); continue; }
+            var aCap = Math.atan2(pCap.y - c.y, pCap.x - c.x);
+            var aEq = Math.atan2(pEq.y - c.y, pEq.x - c.x);
+            var aCan = Math.atan2(pCan.y - c.y, pCan.x - c.x);
+            if (norm2pi(aEq - aCap) < norm2pi(aCan - aCap)) {
+                addArc("Unequal_Hours", c.x, c.y, c.r, aCap, aCan);     // ccw through the equator
+            } else {
+                addArc("Unequal_Hours", c.x, c.y, c.r, aCan, aCap);
+            }
+        }
+        // hour numbers in the middle of each hour cell, half way between the
+        // Capricorn and Equator division points - the rim itself is taken by
+        // the ecliptic band where it touches Capricorn
+        for (var h = 1; h <= 12; h++) {
+            var mCap = plateFromEq(rad(decs[0]), nightStart[0] + (h - 0.5) * nightArc[0] / 12);
+            var mEq = plateFromEq(rad(decs[1]), nightStart[1] + (h - 0.5) * nightArc[1] / 12);
+            var mx = (mCap.x + mEq.x) / 2, my = (mCap.y + mEq.y) / 2;
+            addTangentText("Unequal_Hours", mx, my, Math.atan2(my, mx), 0.022 * Rc, h);
+        }
+    })();
 
     // =======================================================================
     // 3. AZIMUTH LINES (great circles through zenith and nadir)
@@ -436,6 +550,27 @@ include("scripts/EAction.js");
         var l1 = sunLon[(m + 1) % 12][0];
         var span = (l1 - l0 + 360) % 360;
         ringText("Ecliptic_Calendar", eclRay(l0 + span / 2), Re + 0.064 * Rc, 0.017 * Rc, months[m]);
+    }
+
+    // =======================================================================
+    // 4b. RETE: star pointers
+    // =======================================================================
+    // A star of declination dec sits at r = Req * tan((90 - dec) / 2), so only
+    // stars north of -eps fall inside the Tropic of Capricorn.
+    for (var si = 0; si < STARS.length; si++) {
+        var star = STARS[si], ps = plateFromRaDec(star[1], star[2]);
+        var pr = Math.sqrt(ps.x * ps.x + ps.y * ps.y);
+        if (pr > Rc) {
+            log("Astrolabe: star " + star[0] + " (dec " + star[2].toFixed(2) +
+                ") falls outside the Tropic of Capricorn - skipped");
+            continue;
+        }
+        addCircle("Rete", ps.x, ps.y, 0.009 * Rc);
+        // name beside the pointer, pushed away from the crowded rim
+        var sgn = (pr > 0.75 * Rc) ? -1 : 1, sa = Math.atan2(ps.y, ps.x);
+        var off = 0.028 * Rc;
+        addTangentText("Rete", ps.x + sgn * off * Math.cos(sa), ps.y + sgn * off * Math.sin(sa),
+                       sa, 0.018 * Rc, star[0]);
     }
 
     // =======================================================================

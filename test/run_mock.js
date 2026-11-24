@@ -105,6 +105,82 @@ curves('Almucantars').filter(function (e) { return e.d.r > 0.01 * D / 2; }).forE
 check('almucantars constant altitude', worst < 1e-8, 'max spread ' + worst.toExponential(2) + ' deg');
 check('almucantars at multiples of 5', Math.max.apply(null, Object.keys(alts).map(function (k) { return alts[k]; })) < 1e-8, 'altitudes: ' + Object.keys(alts).sort(function (a, b) { return a - b; }).join(','));
 
+// 3b. twilight: constant altitude at -6, -12, -18
+worst = 0; var tw = {};
+curves('Twilight').forEach(function (e) {
+  var hs = samples(e).map(function (p) { return inv(p[0], p[1]).h; });
+  var m = hs.reduce(function (a, b) { return a + b; }, 0) / hs.length;
+  hs.forEach(function (h) { worst = Math.max(worst, Math.abs(h - m)); });
+  tw[Math.round(m)] = Math.max(Math.abs(m - Math.round(m)), tw[Math.round(m)] || 0);
+});
+var twAlts = Object.keys(tw).map(Number).sort(function (a, b) { return a - b; });
+check('twilight arcs constant altitude', worst < 1e-8, 'max spread ' + worst.toExponential(2) + ' deg');
+check('twilight at -18, -12, -6', twAlts.join(',') === '-18,-12,-6' &&
+      twAlts.every(function (a) { return tw[a] < 1e-8; }), 'altitudes: ' + twAlts.join(','));
+check('twilight curves clipped to the plate', curves('Twilight').every(function (e) {
+  return samples(e).every(function (p) { return Math.hypot(p[0], p[1]) <= D / 2 + 1e-8; }); }));
+check('each twilight curve labelled', ents.filter(function (e) { return e.L === 'Twilight' && e.kind === 'text'; })
+      .map(function (e) { return Number(e.d.text); }).sort(function (a, b) { return a - b; }).join(',') === '-18,-12,-6');
+
+// 3c. unequal hours: each curve divides the night of Capricorn, Equator and
+// Cancer at the same k/12, and lies below the horizon
+function decOf(x, y) { return Math.PI / 2 - 2 * Math.atan(Math.hypot(x, y) / G.Req); }
+function nightFraction(x, y) {           // 0 at sunset, 1 at sunrise
+  var d = decOf(x, y), H0 = Math.acos(-Math.tan(rad(G.phi)) * Math.tan(d));
+  var H = Math.atan2(x, y); if (H < 0) { H += 2 * Math.PI; }
+  return (H - H0) / (2 * Math.PI - 2 * H0);
+}
+var hourEnts = ents.filter(function (e) { return e.L === 'Unequal_Hours' && e.kind !== 'text'; });
+// above the Arctic circle Capricorn never rises, so the construction is dropped
+var hoursPossible = Math.abs(Math.tan(rad(G.phi)) * Math.tan(rad(23.4393))) < 1;
+if (!hoursPossible) {
+  check('unequal hours dropped above the Arctic circle', ents.filter(function (e) { return e.L === 'Unequal_Hours'; }).length === 0);
+} else {
+check('11 unequal hour lines', hourEnts.length === 11, hourEnts.length + ' curve(s)');
+var ends = {}, radErr = 0, fracErr = 0, eqErr = 0, maxAlt = -90, check_eq = 0;
+hourEnts.forEach(function (e) {
+  var ps = e.kind === 'line' ? [[e.d.a.x, e.d.a.y], [e.d.b.x, e.d.b.y]]
+                             : samples(e).filter(function (p, i, a) { return i === 0 || i === a.length - 1; });
+  var k = Math.round(nightFraction(ps[0][0], ps[0][1]) * 12);
+  ends[k] = (ends[k] || 0) + 1;
+  // ends sit on Capricorn and on the Tropic of Cancer
+  var rs = ps.map(function (p) { return Math.hypot(p[0], p[1]); }).sort(function (a, b) { return a - b; });
+  radErr = Math.max(radErr, Math.abs(rs[0] - G.Rcan), Math.abs(rs[1] - D / 2));
+  ps.forEach(function (p) { fracErr = Math.max(fracErr, Math.abs(nightFraction(p[0], p[1]) * 12 - k)); });
+  // where the curve crosses the equator it must divide that night at the same
+  // k/12 - solved exactly, not sampled
+  var cross = null;
+  if (e.kind === 'line') {                       // |p1 + t (p2 - p1)| = Req
+    var p1 = [e.d.a.x, e.d.a.y], dx = e.d.b.x - p1[0], dy = e.d.b.y - p1[1];
+    var A = dx * dx + dy * dy, B = 2 * (p1[0] * dx + p1[1] * dy), C = p1[0] * p1[0] + p1[1] * p1[1] - G.Req * G.Req;
+    var disc = B * B - 4 * A * C;
+    if (disc >= 0) { [( -B + Math.sqrt(disc)) / (2 * A), (-B - Math.sqrt(disc)) / (2 * A)].forEach(function (t) {
+      if (t >= -1e-9 && t <= 1 + 1e-9) { cross = [p1[0] + t * dx, p1[1] + t * dy]; } }); }
+  } else {                                       // |c + r e(t)| = Req  ->  R cos(t - f0) = K
+    var c = e.d, R = Math.hypot(c.c.x, c.c.y), f0 = Math.atan2(c.c.y, c.c.x);
+    var K = (G.Req * G.Req - R * R - c.r * c.r) / (2 * c.r);
+    if (R > 1e-12 && Math.abs(K / R) <= 1) {
+      var a1 = c.a1 < c.a0 ? c.a1 + 2 * Math.PI : c.a1;
+      [f0 + Math.acos(K / R), f0 - Math.acos(K / R)].forEach(function (t) {
+        var tt = c.a0 + (((t - c.a0) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+        if (tt <= a1 + 1e-12) { cross = [c.c.x + c.r * Math.cos(tt), c.c.y + c.r * Math.sin(tt)]; }
+      });
+    }
+  }
+  check_eq += cross ? 0 : 1;
+  if (cross) { eqErr = Math.max(eqErr, Math.abs(nightFraction(cross[0], cross[1]) * 12 - k)); }
+  (e.kind === 'line' ? ps : samples(e)).forEach(function (p) { maxAlt = Math.max(maxAlt, inv(p[0], p[1]).h); });
+});
+check('one curve per hour 1..11', Object.keys(ends).map(Number).sort(function (a, b) { return a - b; }).join(',') === '1,2,3,4,5,6,7,8,9,10,11');
+check('hour curves end on Capricorn and Cancer', radErr < 1e-9, 'max err ' + radErr.toExponential(2));
+check('endpoints divide the night exactly', fracErr < 1e-12, 'max err ' + fracErr.toExponential(2) + ' hours');
+check('every curve crosses the equator', check_eq === 0, check_eq + ' without a crossing');
+check('equator crossing divides the night', eqErr < 1e-9, 'max err ' + eqErr.toExponential(2) + ' hours');
+check('hour curves stay below the horizon', maxAlt < 1e-9, 'max altitude ' + maxAlt.toExponential(2) + ' deg');
+check('12 hour numbers', ents.filter(function (e) { return e.L === 'Unequal_Hours' && e.kind === 'text'; })
+      .map(function (e) { return Number(e.d.text); }).sort(function (a, b) { return a - b; }).join(',') === '1,2,3,4,5,6,7,8,9,10,11,12');
+}
+
 // 4. azimuth: constant azimuth along arc; multiples of 10; lines
 worst = 0; var azs = {};
 curves('Azimuth').forEach(function (e) {
@@ -220,6 +296,33 @@ check('scale ticks stand on the base line', ticks.every(function (e) {
 check('scale ticks all on one side', ticks.every(function (e) {
   return Math.max(off(e.d.a), off(e.d.b)) > -1e-9; }));
 
+// 7d. rete: every star of data/stars.txt drawn at r = Req tan((90-dec)/2) and
+// at a plate angle equal to its right ascension, labelled with its Latin name
+var starRows = fs.readFileSync(path.join(__dirname, '..', 'data', 'stars.txt'), 'utf8')
+  .split('\n').filter(function (l) { return /^\|/.test(l) && !/^\|-/.test(l) && !/Right Ascension/.test(l); })
+  .map(function (l) { var c = l.replace(/^\||\|$/g, '').split('|').map(function (x) { return x.trim(); });
+                      return { name: c[0], ra: parseFloat(c[1]), dec: parseFloat(c[2]) }; });
+var reteDots = ents.filter(function (e) { return e.L === 'Rete' && e.kind === 'circle'; });
+var reteText = ents.filter(function (e) { return e.L === 'Rete' && e.kind === 'text'; });
+check('19 stars read from data/stars.txt', starRows.length === 19, starRows.length + ' rows');
+check('one pointer and one name per star', reteDots.length === starRows.length && reteText.length === starRows.length,
+      reteDots.length + ' pointers, ' + reteText.length + ' names');
+var posErr = 0, missing = [], labelErr = [];
+starRows.forEach(function (st) {
+  var r = G.Req * Math.tan(rad(90 - st.dec) / 2);         // independent of the script
+  var x = r * Math.cos(rad(st.ra)), y = r * Math.sin(rad(st.ra));
+  var dot = reteDots.filter(function (e) { return Math.hypot(e.d.c.x - x, e.d.c.y - y) < 1e-6; })[0];
+  if (!dot) { missing.push(st.name); return; }
+  posErr = Math.max(posErr, Math.hypot(dot.d.c.x - x, dot.d.c.y - y));
+  var lab = reteText.filter(function (e) { return e.d.text === st.name; })[0];
+  if (!lab || Math.hypot(lab.d.pos.x - x, lab.d.pos.y - y) > 0.03 * (D / 2) + 1e-9) { labelErr.push(st.name); }
+});
+check('every star at its catalogue position', missing.length === 0, 'missing: ' + missing.join(', '));
+check('star positions exact', posErr < 1e-9, 'max err ' + posErr.toExponential(2));
+check('every star labelled with its old name', labelErr.length === 0, 'wrong/far: ' + labelErr.join(', '));
+check('all star pointers inside Capricorn', reteDots.every(function (e) {
+  return Math.hypot(e.d.c.x, e.d.c.y) + e.d.r <= D / 2; }));
+
 // 8. counts
 function n(L, k) { return ents.filter(function (e) { return e.L === L && (!k || e.kind === k); }).length; }
 console.log('  zodiac ticks (lines): ' + n('Ecliptic_Zodiac', 'line') + ', calendar lines: ' + n('Ecliptic_Calendar', 'line') + ', limb lines: ' + n('Limb', 'line'));
@@ -231,7 +334,7 @@ console.log(fails ? fails + ' FAILED' : 'ALL PASSED');
 
 // SVG preview
 if (out) {
-  var col = { Equator: '#00a000', Tropic_Cancer: '#dc7800', Tropic_Capricorn: '#1e5ae6', Horizon: '#dc0000', Almucantars: '#0096be', Azimuth: '#963cc8', Ecliptic: '#c8a000', Ecliptic_Zodiac: '#be6414', Ecliptic_Calendar: '#787814', Index: '#e6288c', Limb: '#555' };
+  var col = { Equator: '#00a000', Tropic_Cancer: '#dc7800', Tropic_Capricorn: '#1e5ae6', Horizon: '#dc0000', Almucantars: '#0096be', Twilight: '#4646aa', Unequal_Hours: '#007864', Azimuth: '#963cc8', Ecliptic: '#c8a000', Ecliptic_Zodiac: '#be6414', Ecliptic_Calendar: '#787814', Rete: '#96143c', Index: '#e6288c', Limb: '#555' };
   var S = G.Rl * 1.08, sw = D / 700, svg = [];
   svg.push('<svg xmlns="http://www.w3.org/2000/svg" viewBox="' + -S + ' ' + -S + ' ' + 2 * S + ' ' + 2 * S + '" width="1400" height="1400"><rect x="' + -S + '" y="' + -S + '" width="' + 2 * S + '" height="' + 2 * S + '" fill="white"/><g transform="scale(1,-1)" fill="none" stroke-width="' + sw + '">');
   ents.forEach(function (e) {
