@@ -136,6 +136,90 @@ check('Mar equinox 2026-03-20 14:46 UT -> ~0', Math.abs(((lon(3, 20, 14.77) + 18
 check('Jun solstice 2026-06-21 08:24 UT -> ~90', Math.abs(lon(6, 21, 8.4) - 90) < 0.05, lon(6, 21, 8.4).toFixed(3));
 check('Dec solstice 2026-12-21 20:50 UT -> ~270', Math.abs(lon(12, 21, 20.83) - 270) < 0.05, lon(12, 21, 20.83).toFixed(3));
 
+var limbW_ = G.limbW;
+// 7b. one ecliptic line, both scales straddling it: calendar outside, zodiac inside
+function bandEnts(L) { return ents.filter(function (e) { return e.L === L; }); }
+function rEcl(x, y) { return Math.hypot(x, y - G.eclCy); }
+function radii(e) {
+  var r1 = rEcl(e.d.a.x, e.d.a.y), r2 = rEcl(e.d.b.x, e.d.b.y);
+  return { lo: Math.min(r1, r2), hi: Math.max(r1, r2) };
+}
+// no extra scale ring: the Ecliptic circle is the only curve of the whole band
+var ringR = ['Ecliptic', 'Ecliptic_Zodiac', 'Ecliptic_Calendar'].reduce(function (a, L) {
+  return a.concat(curves(L).map(function (e) { return e.d.r; })); }, []);
+check('the ecliptic line is the only band circle', ringR.length === 1 && Math.abs(ringR[0] - G.Re) < 1e-9,
+      'radii ' + ringR.map(function (r) { return r.toFixed(3); }).join(', '));
+
+var cBase = 0, cOut = 0;
+bandEnts('Ecliptic_Calendar').filter(function (e) { return e.kind === 'line'; }).forEach(function (e) {
+  var r = radii(e); cBase = Math.max(cBase, Math.abs(r.lo - G.Re)); cOut = Math.max(cOut, r.hi - G.Re);
+});
+check('calendar ticks start on the ecliptic line', cBase < 1e-9, 'max err ' + cBase.toExponential(2));
+check('calendar ticks run outwards only', cOut > 0 && cOut <= G.calOut + 1e-9, 'max reach ' + (cOut / (D / 2)).toFixed(3) + ' Rc');
+var zBase = 0, zIn = 0;
+bandEnts('Ecliptic_Zodiac').filter(function (e) { return e.kind === 'line'; }).forEach(function (e) {
+  var r = radii(e); zBase = Math.max(zBase, Math.abs(r.hi - G.Re)); zIn = Math.max(zIn, G.Re - r.lo);
+});
+check('zodiac ticks start on the ecliptic line', zBase < 1e-9, 'max err ' + zBase.toExponential(2));
+check('zodiac ticks run inwards only', zIn > 0 && zIn <= G.zodIn + 1e-9, 'max reach ' + (zIn / (D / 2)).toFixed(3) + ' Rc');
+// the two scales never cross to the wrong side of the line
+var sideErr = 0;
+bandEnts('Ecliptic_Calendar').forEach(function (e) {
+  var rs = e.kind === 'text' ? [rEcl(e.d.pos.x, e.d.pos.y)] : [radii(e).lo, radii(e).hi];
+  rs.forEach(function (r) { sideErr = Math.max(sideErr, G.Re - r); });
+});
+bandEnts('Ecliptic_Zodiac').forEach(function (e) {
+  var rs = e.kind === 'text' ? [rEcl(e.d.pos.x, e.d.pos.y)] : [radii(e).lo, radii(e).hi];
+  rs.forEach(function (r) { sideErr = Math.max(sideErr, r - G.Re); });
+});
+check('calendar outside / zodiac inside the line', sideErr < 1e-9, 'max crossing ' + sideErr.toExponential(2));
+// the calendar leans past the plate edge where the ecliptic touches Capricorn,
+// into the annulus the limb scale now occupies
+var over = 0, clash = [];
+bandEnts('Ecliptic_Calendar').forEach(function (e) {
+  var ps = e.kind === 'text' ? [[e.d.pos.x, e.d.pos.y]] : [[e.d.a.x, e.d.a.y], [e.d.b.x, e.d.b.y]];
+  ps.forEach(function (p) {
+    var d = Math.hypot(p[0], p[1]) - D / 2;
+    if (d > 0) { over = Math.max(over, d); clash.push(((90 - deg(Math.atan2(p[1], p[0]))) + 360) % 360); }
+  });
+});
+console.log('  calendar reaches ' + (over / (D / 2)).toFixed(3) + ' Rc past Capricorn, over the limb scale (' +
+            (limbW_ / (D / 2)).toFixed(3) + ' Rc deep) between limb ' +
+            Math.round(Math.min.apply(null, clash)) + ' and ' + Math.round(Math.max.apply(null, clash)) + ' deg');
+
+// 7c. limb: a bare scale standing on the Tropic of Capricorn
+check('limb has no circle', curves('Limb').length === 0, curves('Limb').length + ' circle(s)');
+var lBase = 0, lOut = 0;
+ents.filter(function (e) { return e.L === 'Limb' && e.kind === 'line'; }).forEach(function (e) {
+  var r1 = Math.hypot(e.d.a.x, e.d.a.y), r2 = Math.hypot(e.d.b.x, e.d.b.y);
+  lBase = Math.max(lBase, Math.abs(Math.min(r1, r2) - D / 2));
+  lOut = Math.max(lOut, Math.max(r1, r2) - D / 2);
+});
+check('limb ticks stand on the Tropic of Capricorn', lBase < 1e-9, 'max err ' + lBase.toExponential(2));
+check('limb ticks run outwards only', lOut > 0 && lOut <= limbW_ + 1e-9, 'max reach ' + (lOut / (D / 2)).toFixed(3) + ' Rc');
+var limbOut = Math.max.apply(null, ents.filter(function (e) { return e.L === 'Limb'; }).map(function (e) {
+  return e.kind === 'text' ? Math.hypot(e.d.pos.x, e.d.pos.y) + e.d.h / 2
+       : Math.max(Math.hypot(e.d.a.x, e.d.a.y), Math.hypot(e.d.b.x, e.d.b.y)); }));
+check('limb scale fits inside Rl', limbOut <= G.Rl + 1e-9, 'outermost limb ink ' + (limbOut / (D / 2)).toFixed(3) + ' Rc');
+
+// 7c. index: nothing but a base line and the declination scale on it
+check('index has no outline curves', curves('Index').length === 0, curves('Index').length + ' circle/arc(s)');
+var idxLines = ents.filter(function (e) { return e.L === 'Index' && e.kind === 'line'; });
+var len = function (e) { return Math.hypot(e.d.b.x - e.d.a.x, e.d.b.y - e.d.a.y); };
+var long_ = idxLines.filter(function (e) { return len(e) > 0.05 * G.Rl; });
+check('exactly one base line', long_.length === 1, long_.length + ' long line(s)');
+check('base line runs from the pivot to the limb', long_.length === 1 &&
+      Math.min(Math.hypot(long_[0].d.a.x, long_[0].d.a.y), Math.hypot(long_[0].d.b.x, long_[0].d.b.y)) < 1e-9 &&
+      Math.abs(len(long_[0]) - G.Rl) < 1e-9);
+// every other line is a scale tick standing on the base line, all on one side
+var ia = Math.atan2(long_[0].d.b.y - long_[0].d.a.y, long_[0].d.b.x - long_[0].d.a.x);
+var off = function (p) { return -p.x * Math.sin(ia) + p.y * Math.cos(ia); };
+var ticks = idxLines.filter(function (e) { return e !== long_[0]; });
+check('scale ticks stand on the base line', ticks.every(function (e) {
+  return Math.min(Math.abs(off(e.d.a)), Math.abs(off(e.d.b))) < 1e-9; }), ticks.length + ' ticks');
+check('scale ticks all on one side', ticks.every(function (e) {
+  return Math.max(off(e.d.a), off(e.d.b)) > -1e-9; }));
+
 // 8. counts
 function n(L, k) { return ents.filter(function (e) { return e.L === L && (!k || e.kind === k); }).length; }
 console.log('  zodiac ticks (lines): ' + n('Ecliptic_Zodiac', 'line') + ', calendar lines: ' + n('Ecliptic_Calendar', 'line') + ', limb lines: ' + n('Limb', 'line'));
@@ -147,7 +231,7 @@ console.log(fails ? fails + ' FAILED' : 'ALL PASSED');
 
 // SVG preview
 if (out) {
-  var col = { Equator: '#00a000', Tropic_Cancer: '#dc7800', Tropic_Capricorn: '#1e5ae6', Horizon: '#dc0000', Almucantars: '#0096be', Azimuth: '#963cc8', Ecliptic: '#c8a000', Ecliptic_Zodiac: '#be6414', Ecliptic_Calendar: '#787814', Index: '#e6288c', Limb: '#555', Axes: '#aaa', Pole: '#333' };
+  var col = { Equator: '#00a000', Tropic_Cancer: '#dc7800', Tropic_Capricorn: '#1e5ae6', Horizon: '#dc0000', Almucantars: '#0096be', Azimuth: '#963cc8', Ecliptic: '#c8a000', Ecliptic_Zodiac: '#be6414', Ecliptic_Calendar: '#787814', Index: '#e6288c', Limb: '#555' };
   var S = G.Rl * 1.08, sw = D / 700, svg = [];
   svg.push('<svg xmlns="http://www.w3.org/2000/svg" viewBox="' + -S + ' ' + -S + ' ' + 2 * S + ' ' + 2 * S + '" width="1400" height="1400"><rect x="' + -S + '" y="' + -S + '" width="' + 2 * S + '" height="' + 2 * S + '" fill="white"/><g transform="scale(1,-1)" fill="none" stroke-width="' + sw + '">');
   ents.forEach(function (e) {

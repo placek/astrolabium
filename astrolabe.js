@@ -11,9 +11,11 @@
  * Every component lives on its own layer:
  *
  *     Equator, Tropic_Cancer, Tropic_Capricorn, Horizon, Almucantars, Azimuth,
- *     Ecliptic, Ecliptic_Zodiac (equal zodiac, 1 degree scale),
- *     Ecliptic_Calendar (365 days / 12 months), Index (with declination
- *     scale), Limb (360 degree scale outside the plate), Axes, Pole
+ *     Ecliptic (a single line, the only circle of the band),
+ *     Ecliptic_Calendar (365 days / 12 months, outside that line),
+ *     Ecliptic_Zodiac (equal zodiac, 1 degree scale, inside that line),
+ *     Index (base line + declination scale), Limb (360 degree scale standing
+ *     on the Tropic of Capricorn)
  *
  * Run it in QCAD with an open drawing: Misc > Development > Run Script...
  * (or File > Open Script / "Run Script"), then pick this file.
@@ -45,6 +47,10 @@
  *     sin(dec) = sin(eps) sin(L), tan(RA) = cos(eps) tan(L).
  *   - Calendar: the Sun's ecliptic longitude for each day (low-precision
  *     solar ephemeris, ~0.01 deg) is placed on the ecliptic.
+ *   - Calendar and zodiac share the ecliptic line itself as their common base:
+ *     both index the same rays out of the ecliptic centre, the calendar drawn
+ *     outwards (Re .. Re + calOut), the zodiac inwards (Re - zodIn .. Re).  No
+ *     further circle is drawn for either scale.
  *   - Index: declination scale at radii r(90 - dec) along the index edge.
  *
  * Orientation: +Y is the upper meridian (towards the zenith side), +X is
@@ -89,9 +95,7 @@ include("scripts/EAction.js");
         ["Ecliptic_Zodiac",   [190, 100,  20]],
         ["Ecliptic_Calendar", [120, 120,  20]],
         ["Index",             [230,  40, 140]],
-        ["Limb",              [ 90,  90,  90]],
-        ["Axes",              [140, 140, 140]],
-        ["Pole",              [ 60,  60,  60]]
+        ["Limb",              [ 90,  90,  90]]
     ];
 
     var PI = Math.PI;
@@ -130,7 +134,9 @@ include("scripts/EAction.js");
     var Rc = cfg.diameter / 2;                       // Tropic of Capricorn
     var Req = Rc / Math.tan(rad(45 + eps / 2));      // Equator
     var Rcan = Req * Math.tan(rad(45 - eps / 2));    // Tropic of Cancer
-    var Rl = Rc * 1.10;                              // outer edge of the limb
+    var calOut = 0.075 * Rc;                         // calendar reach outside the ecliptic
+    var limbW = 0.080 * Rc;                          // depth of the limb's 360 deg scale
+    var Rl = Rc + limbW;                             // outer end of the limb scale
 
     // signed polar distance along the meridian (positive towards +Y) -> Y
     function yOnMeridian(sDeg) { return Req * Math.tan(rad(sDeg) / 2); }
@@ -307,14 +313,11 @@ include("scripts/EAction.js");
     }
 
     // =======================================================================
-    // 1. EQUATOR, TROPICS, POLE, AXES
+    // 1. EQUATOR AND TROPICS
     // =======================================================================
     addCircle("Equator", 0, 0, Req);
     addCircle("Tropic_Cancer", 0, 0, Rcan);
     addCircle("Tropic_Capricorn", 0, 0, Rc);
-    addCircle("Pole", 0, 0, 0.012 * Rc);
-    addLine("Axes", 0, -Rc, 0, Rc);
-    addLine("Axes", -Rc, 0, Rc, 0);
 
     // =======================================================================
     // 2. HORIZON AND ALMUCANTARS
@@ -367,22 +370,21 @@ include("scripts/EAction.js");
     var eclTop = plateFromEcliptic(90), eclBot = plateFromEcliptic(270);
     var eclCy = (eclTop.y + eclBot.y) / 2;
     var Re = (eclTop.y - eclBot.y) / 2;
+
+    // Both scales sit on the ONE ecliptic line - no extra scale circle: the
+    // calendar ticks run outwards from it, the zodiac ticks inwards, so a day
+    // and its zodiac degree meet on the same point of the ecliptic.
+    var zodIn = 0.080 * Rc;         // zodiac reach inside the ecliptic line (calOut: above)
     addCircle("Ecliptic", 0, eclCy, Re);
 
-    var zodiacW = 0.09 * Rc, calW = 0.075 * Rc;
-    var Rz = Re - zodiacW;          // inner edge of zodiac ring
-    var Rcal = Rz - calW;           // inner edge of calendar ring
-    addCircle("Ecliptic_Zodiac", 0, eclCy, Rz);
-    addCircle("Ecliptic_Calendar", 0, eclCy, Rcal);
-
-    // point at radius rho on the ray from the ecliptic centre through longitude lon
+    // ray from the ecliptic centre through the point of ecliptic longitude lon
     function eclRay(lon) {
         var p = plateFromEcliptic(lon);
-        return { ang: Math.atan2(p.y - eclCy, p.x), cx: Math.cos(Math.atan2(p.y - eclCy, p.x)),
-                 cy: Math.sin(Math.atan2(p.y - eclCy, p.x)) };
+        var ang = Math.atan2(p.y - eclCy, p.x);
+        return { ang: ang, cx: Math.cos(ang), cy: Math.sin(ang) };
     }
-    function radial(layer, ray, rOuter, rInner) {
-        addLine(layer, rOuter * ray.cx, eclCy + rOuter * ray.cy, rInner * ray.cx, eclCy + rInner * ray.cy);
+    function radial(layer, ray, r1, r2) {
+        addLine(layer, r1 * ray.cx, eclCy + r1 * ray.cy, r2 * ray.cx, eclCy + r2 * ray.cy);
     }
     function ringText(layer, ray, rho, h, str) {
         addTangentText(layer, rho * ray.cx, eclCy + rho * ray.cy, ray.ang, h, str);
@@ -390,18 +392,19 @@ include("scripts/EAction.js");
 
     var signs = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo", "Libra",
                  "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"];
+    // zodiac: ticks and labels on the inner side of the ecliptic line
     for (var lon = 0; lon < 360; lon++) {
         var ray = eclRay(lon);
-        var len = (lon % 30 === 0) ? zodiacW :
-                  (lon % 10 === 0) ? 0.030 * Rc :
-                  (lon % 5 === 0)  ? 0.020 * Rc : 0.012 * Rc;
+        var len = (lon % 30 === 0) ? 0.030 * Rc :
+                  (lon % 10 === 0) ? 0.022 * Rc :
+                  (lon % 5 === 0)  ? 0.016 * Rc : 0.010 * Rc;
         radial("Ecliptic_Zodiac", ray, Re, Re - len);
         if (lon % 10 === 0 && lon % 30 !== 0) {
-            ringText("Ecliptic_Zodiac", ray, Re - 0.045 * Rc, 0.014 * Rc, lon % 30);
+            ringText("Ecliptic_Zodiac", ray, Re - 0.042 * Rc, 0.013 * Rc, lon % 30);
         }
     }
     for (var s = 0; s < 12; s++) {
-        ringText("Ecliptic_Zodiac", eclRay(s * 30 + 15), Re - 0.072 * Rc, 0.020 * Rc, signs[s]);
+        ringText("Ecliptic_Zodiac", eclRay(s * 30 + 15), Re - 0.066 * Rc, 0.018 * Rc, signs[s]);
     }
 
     // calendar: Sun position at 12:00 UT of each day of the reference year
@@ -416,37 +419,38 @@ include("scripts/EAction.js");
         }
         sunLon.push(arr);
     }
+    // calendar: ticks and labels on the outer side of the same line
     for (m = 0; m < 12; m++) {
         for (d = 1; d <= mdays[m]; d++) {
             var rayD = eclRay(sunLon[m][d - 1]);
-            var tl = (d === 1)      ? calW :
-                     (d % 10 === 0) ? 0.026 * Rc :
-                     (d % 5 === 0)  ? 0.020 * Rc : 0.012 * Rc;
-            radial("Ecliptic_Calendar", rayD, Rz, Rz - tl);
+            var tl = (d === 1)      ? 0.028 * Rc :
+                     (d % 10 === 0) ? 0.022 * Rc :
+                     (d % 5 === 0)  ? 0.016 * Rc : 0.010 * Rc;
+            radial("Ecliptic_Calendar", rayD, Re, Re + tl);
             if (d % 5 === 0 && d <= 25) {
-                ringText("Ecliptic_Calendar", rayD, Rz - 0.040 * Rc, 0.013 * Rc, d);
+                ringText("Ecliptic_Calendar", rayD, Re + 0.042 * Rc, 0.013 * Rc, d);
             }
         }
         // month name centred between the 1st of this month and the 1st of the next
         var l0 = sunLon[m][0];
         var l1 = sunLon[(m + 1) % 12][0];
         var span = (l1 - l0 + 360) % 360;
-        ringText("Ecliptic_Calendar", eclRay(l0 + span / 2), Rz - 0.062 * Rc, 0.017 * Rc, months[m]);
+        ringText("Ecliptic_Calendar", eclRay(l0 + span / 2), Re + 0.064 * Rc, 0.017 * Rc, months[m]);
     }
 
     // =======================================================================
-    // 5. LIMB: 360 degree scale outside the plate
+    // 5. LIMB: 360 degree scale standing on the Tropic of Capricorn
     // =======================================================================
-    addCircle("Limb", 0, 0, Rl);
+    // no limb circle: the scale stands on the Tropic of Capricorn and runs outwards
     var dirSign = cfg.limbClockwise ? -1 : 1;
     for (var g = 0; g < 360; g++) {
         var th = PI / 2 + dirSign * rad(g);          // 0 deg at top
         var tlen = (g % 10 === 0) ? 0.035 * Rc : (g % 5 === 0) ? 0.025 * Rc : 0.015 * Rc;
         var ct = Math.cos(th), st = Math.sin(th);
-        addLine("Limb", Rl * ct, Rl * st, (Rl - tlen) * ct, (Rl - tlen) * st);
+        addLine("Limb", Rc * ct, Rc * st, (Rc + tlen) * ct, (Rc + tlen) * st);
         if (g % 10 === 0) {
-            var rr = Rc + 0.045 * Rc;
-            addTangentText("Limb", rr * ct, rr * st, th, 0.028 * Rc, g);
+            var rr = Rc + (limbW + 0.035 * Rc) / 2;   // between the ticks and the outer end
+            addTangentText("Limb", rr * ct, rr * st, th, 0.026 * Rc, g);
         }
     }
 
@@ -454,23 +458,17 @@ include("scripts/EAction.js");
     // 6. INDEX with DECLINATION SCALE
     // =======================================================================
     (function drawIndex() {
-        var w = 0.07 * Rc;                 // strip width, centre line = scale edge
         var L = Rl;                        // length from pivot
         var ia = rad(cfg.indexAngle);
         var ox = 0, oy = 0;
-        if (cfg.indexSeparate) { ia = 0; ox = Rl + 0.25 * Rc + w / 2; oy = 0; }
+        if (cfg.indexSeparate) { ia = 0; ox = Rl + 0.25 * Rc; oy = 0; }
         var ca = Math.cos(ia), sa = Math.sin(ia);
         function gx(u, v) { return ox + u * ca - v * sa; }
         function gy(u, v) { return oy + u * sa + v * ca; }
         function line(u1, v1, u2, v2) { addLine("Index", gx(u1, v1), gy(u1, v1), gx(u2, v2), gy(u2, v2)); }
 
-        // outline: two long edges, flat tip, rounded pivot end, pivot hole
-        line(0, w / 2, L, w / 2);
-        line(0, -w / 2, L, -w / 2);
-        line(L, -w / 2, L, w / 2);
-        addArc("Index", ox, oy, w / 2, ia + PI / 2, ia + 3 * PI / 2);
-        addCircle("Index", ox, oy, 0.012 * Rc);
-        line(0, 0, L, 0);                  // fiducial (scale) line through the pivot
+        // no outline: just the base line through the pivot and the scale on it
+        line(0, 0, L, 0);
 
         // declination scale: tick at radius r(dec) = Req * tan((90 - dec)/2)
         var flip = Math.cos(ia) < -1e-9;
@@ -503,7 +501,8 @@ include("scripts/EAction.js");
     // expose geometry for testing outside QCAD
     if (typeof __ASTROLABE_TEST__ !== "undefined") {
         __ASTROLABE_TEST__.geom = {
-            Req: Req, Rcan: Rcan, Rc: Rc, Rl: Rl, Re: Re, eclCy: eclCy, phi: phi,
+            Req: Req, Rcan: Rcan, Rc: Rc, Rl: Rl, Re: Re, calOut: calOut, zodIn: zodIn, limbW: limbW,
+            eclCy: eclCy, phi: phi,
             plateFromEcliptic: plateFromEcliptic, sunLongitude: sunLongitude, julianDay: julianDay
         };
     }
