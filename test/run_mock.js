@@ -334,11 +334,15 @@ function sunDecEot(jd) {                       // independent of the drawing cod
 }
 var anaLines = ents.filter(function (e) { return e.L === 'Analemma' && e.kind === 'line'; });
 var hours = G.analemmaHours;
-check('one closed figure of 365 days per hour', anaLines.length === 365 * hours.length,
-      anaLines.length + ' segments for ' + hours.length + ' hour(s)');
-var anaErr = 0, gapErr = 0, radOut = 0, extremes = {};
+var fifths = MD.reduce(function (a, n) { return a + Math.min(5, Math.floor(n / 5)); }, 0);  // 5,10,15,20,25
+var block = 365 + fifths;
+check('a closed figure of 365 days plus ' + fifths + ' five-day ticks per hour',
+      anaLines.length === block * hours.length, anaLines.length + ' lines for ' + hours.length + ' hour(s)');
+var anaErr = 0, gapErr = 0, radOut = 0, tickErr = 0, perpErr = 0, lenErr = 0, minGap = 1e9, extremes = {};
 hours.forEach(function (hour, hi) {
-  var seg = anaLines.slice(hi * 365, (hi + 1) * 365), day = 0, maxX = null, minX = null;
+  var seg = anaLines.slice(hi * block, hi * block + 365);
+  var ticks = anaLines.slice(hi * block + 365, (hi + 1) * block);
+  var day = 0, t = 0, maxX = null, minX = null, prevTick = null;
   for (var m = 0; m < 12; m++) {
     for (var d = 1; d <= MD[m]; d++) {
       var s = sunDecEot(G.julianDay(G.year, m + 1, d) + hour / 24);
@@ -348,9 +352,21 @@ hours.forEach(function (hour, hi) {
       radOut = Math.max(radOut, r - D / 2, G.Rcan - r);
       if (!maxX || s.eot > maxX.e) { maxX = { e: s.eot, m: m + 1, d: d }; }
       if (!minX || s.eot < minX.e) { minX = { e: s.eot, m: m + 1, d: d }; }
-      // each segment must start where the previous one ended
       var prev = seg[(day + 364) % 365].d.b;
       gapErr = Math.max(gapErr, Math.hypot(prev.x - a.x, prev.y - a.y));
+      if (d % 5 === 0 && d <= 25) {            // a tick, centred on that day
+        var e = ticks[t++], mid = { x: (e.d.a.x + e.d.b.x) / 2, y: (e.d.a.y + e.d.b.y) / 2 };
+        tickErr = Math.max(tickErr, Math.hypot(mid.x - x, mid.y - y));
+        var tvx = e.d.b.x - e.d.a.x, tvy = e.d.b.y - e.d.a.y;
+        var cvx = seg[(day + 1) % 365].d.a.x - seg[(day + 364) % 365].d.a.x;
+        var cvy = seg[(day + 1) % 365].d.a.y - seg[(day + 364) % 365].d.a.y;
+        perpErr = Math.max(perpErr, Math.abs(tvx * cvx + tvy * cvy) /
+                                    (Math.hypot(tvx, tvy) * Math.hypot(cvx, cvy)));
+        lenErr = Math.max(lenErr, Math.abs(Math.hypot(tvx, tvy) -
+                          (d % 10 === 0 ? 0.017 : 0.012) * (D / 2)));
+        if (prevTick) { minGap = Math.min(minGap, Math.hypot(x - prevTick.x, y - prevTick.y)); }
+        prevTick = { x: x, y: y };
+      }
       day++;
     }
   }
@@ -360,7 +376,12 @@ hours.forEach(function (hour, hi) {
 check('analemma vertices at dec and EoT of their day', anaErr < 1e-9, 'max err ' + anaErr.toExponential(2));
 check('analemma closes on itself', gapErr < 1e-9, 'max gap ' + gapErr.toExponential(2));
 check('analemma between the tropics', radOut < 1e-9, 'max overshoot ' + radOut.toExponential(2));
+check('five-day ticks centred on their day', tickErr < 1e-9, 'max err ' + tickErr.toExponential(2));
+check('five-day ticks across the curve', perpErr < 1e-9, 'max |cos| ' + perpErr.toExponential(2));
+check('tick lengths 0.012 / 0.017 Rc', lenErr < 1e-9, 'max err ' + lenErr.toExponential(2));
 hours.forEach(function (h) { console.log('  analemma ' + h + 'h: equation of time ' + extremes[h]); });
+console.log('  tightest spacing between five-day ticks: ' + minGap.toFixed(2) + ' units (' +
+            (minGap / (D / 2) * 100).toFixed(2) + '% of Rc)');
 check('month dots and names, one hour label', ['circle', 'text'].every(function (k) {
   return ents.filter(function (e) { return e.L === 'Analemma' && e.kind === k; }).length ===
          (k === 'circle' ? 12 : 13) * hours.length; }));

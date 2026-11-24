@@ -511,14 +511,28 @@ include("scripts/EAction.js");
                     var sn = sunAt(julianDay(cfg.calendarYear, m + 1, d) + hour / 24);
                     var pp = plateFromEq(sn.dec, rad(Hmean + sn.eot));
                     pp.r = Math.sqrt(pp.x * pp.x + pp.y * pp.y);
+                    pp.day = d;
                     pts.push(pp);
                     if (d === 1) { marks.push({ p: pp, name: MONTHS[m].substring(0, 3) }); }
                     if (lowest === null || pp.r < lowest.r) { lowest = pp; }
                 }
             }
-            for (var i = 0; i < pts.length; i++) {            // closed curve
-                var q = pts[(i + 1) % pts.length];
+            var n = pts.length;
+            for (var i = 0; i < n; i++) {                     // closed curve
+                var q = pts[(i + 1) % n];
                 addLine("Analemma", pts[i].x, pts[i].y, q.x, q.y);
+            }
+            // every fifth day, a tick across the curve (longer every tenth) so
+            // a date can be set between the month marks; no 30th, it would sit
+            // a day or two from the next month's dot
+            for (i = 0; i < n; i++) {
+                if (pts[i].day % 5 !== 0 || pts[i].day > 25) { continue; }
+                var pv = pts[(i + n - 1) % n], nx = pts[(i + 1) % n];
+                var tx = nx.x - pv.x, ty = nx.y - pv.y, tl = Math.sqrt(tx * tx + ty * ty);
+                if (tl < 1e-12) { continue; }
+                var half = ((pts[i].day % 10 === 0) ? 0.017 : 0.012) * Rc / 2;
+                var ux = -ty / tl * half, uy = tx / tl * half;   // across the curve
+                addLine("Analemma", pts[i].x - ux, pts[i].y - uy, pts[i].x + ux, pts[i].y + uy);
             }
             // first of each month, named in a column east of the figure: the
             // offset is perpendicular to the mean meridian, the same for all
