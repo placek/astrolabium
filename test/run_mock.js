@@ -323,6 +323,48 @@ check('every star labelled with its old name', labelErr.length === 0, 'wrong/far
 check('all star pointers inside Capricorn', reteDots.every(function (e) {
   return Math.hypot(e.d.c.x, e.d.c.y) + e.d.r <= D / 2; }));
 
+// 7e. analemma: every daily vertex at the Sun's declination and an hour angle
+// of (h - 12) * 15 + equation of time, closing into one figure per mean hour
+var MD = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+function sunDecEot(jd) {                       // independent of the drawing code
+  var lam = rad(G.sunLongitude(jd)), L = 280.460 + 0.9856474 * (jd - 2451545.0);
+  var ra = deg(Math.atan2(Math.cos(rad(G.eps)) * Math.sin(lam), Math.cos(lam)));
+  return { dec: deg(Math.asin(Math.sin(rad(G.eps)) * Math.sin(lam))),
+           eot: ((L - ra) % 360 + 540) % 360 - 180 };
+}
+var anaLines = ents.filter(function (e) { return e.L === 'Analemma' && e.kind === 'line'; });
+var hours = G.analemmaHours;
+check('one closed figure of 365 days per hour', anaLines.length === 365 * hours.length,
+      anaLines.length + ' segments for ' + hours.length + ' hour(s)');
+var anaErr = 0, gapErr = 0, radOut = 0, extremes = {};
+hours.forEach(function (hour, hi) {
+  var seg = anaLines.slice(hi * 365, (hi + 1) * 365), day = 0, maxX = null, minX = null;
+  for (var m = 0; m < 12; m++) {
+    for (var d = 1; d <= MD[m]; d++) {
+      var s = sunDecEot(G.julianDay(G.year, m + 1, d) + hour / 24);
+      var r = G.Req * Math.tan(rad(90 - s.dec) / 2), H = rad((hour - 12) * 15 + s.eot);
+      var x = r * Math.sin(H), y = r * Math.cos(H), a = seg[day].d.a;
+      anaErr = Math.max(anaErr, Math.hypot(a.x - x, a.y - y));
+      radOut = Math.max(radOut, r - D / 2, G.Rcan - r);
+      if (!maxX || s.eot > maxX.e) { maxX = { e: s.eot, m: m + 1, d: d }; }
+      if (!minX || s.eot < minX.e) { minX = { e: s.eot, m: m + 1, d: d }; }
+      // each segment must start where the previous one ended
+      var prev = seg[(day + 364) % 365].d.b;
+      gapErr = Math.max(gapErr, Math.hypot(prev.x - a.x, prev.y - a.y));
+      day++;
+    }
+  }
+  extremes[hour] = (maxX.e * 4).toFixed(2) + ' min on ' + maxX.m + '-' + maxX.d + ', ' +
+                   (minX.e * 4).toFixed(2) + ' min on ' + minX.m + '-' + minX.d;
+});
+check('analemma vertices at dec and EoT of their day', anaErr < 1e-9, 'max err ' + anaErr.toExponential(2));
+check('analemma closes on itself', gapErr < 1e-9, 'max gap ' + gapErr.toExponential(2));
+check('analemma between the tropics', radOut < 1e-9, 'max overshoot ' + radOut.toExponential(2));
+hours.forEach(function (h) { console.log('  analemma ' + h + 'h: equation of time ' + extremes[h]); });
+check('month dots and names, one hour label', ['circle', 'text'].every(function (k) {
+  return ents.filter(function (e) { return e.L === 'Analemma' && e.kind === k; }).length ===
+         (k === 'circle' ? 12 : 13) * hours.length; }));
+
 // 8. counts
 function n(L, k) { return ents.filter(function (e) { return e.L === L && (!k || e.kind === k); }).length; }
 console.log('  zodiac ticks (lines): ' + n('Ecliptic_Zodiac', 'line') + ', calendar lines: ' + n('Ecliptic_Calendar', 'line') + ', limb lines: ' + n('Limb', 'line'));
@@ -334,7 +376,7 @@ console.log(fails ? fails + ' FAILED' : 'ALL PASSED');
 
 // SVG preview
 if (out) {
-  var col = { Equator: '#00a000', Tropic_Cancer: '#dc7800', Tropic_Capricorn: '#1e5ae6', Horizon: '#dc0000', Almucantars: '#0096be', Twilight: '#4646aa', Unequal_Hours: '#007864', Azimuth: '#963cc8', Ecliptic: '#c8a000', Ecliptic_Zodiac: '#be6414', Ecliptic_Calendar: '#787814', Rete: '#96143c', Index: '#e6288c', Limb: '#555' };
+  var col = { Equator: '#00a000', Tropic_Cancer: '#dc7800', Tropic_Capricorn: '#1e5ae6', Horizon: '#dc0000', Almucantars: '#0096be', Twilight: '#4646aa', Unequal_Hours: '#007864', Azimuth: '#963cc8', Analemma: '#1e1e1e', Ecliptic: '#c8a000', Ecliptic_Zodiac: '#be6414', Ecliptic_Calendar: '#787814', Rete: '#96143c', Index: '#e6288c', Limb: '#555' };
   var S = G.Rl * 1.08, sw = D / 700, svg = [];
   svg.push('<svg xmlns="http://www.w3.org/2000/svg" viewBox="' + -S + ' ' + -S + ' ' + 2 * S + ' ' + 2 * S + '" width="1400" height="1400"><rect x="' + -S + '" y="' + -S + '" width="' + 2 * S + '" height="' + 2 * S + '" fill="white"/><g transform="scale(1,-1)" fill="none" stroke-width="' + sw + '">');
   ents.forEach(function (e) {

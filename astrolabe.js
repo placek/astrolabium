@@ -13,6 +13,7 @@
  *     Equator, Tropic_Cancer, Tropic_Capricorn, Horizon, Almucantars,
  *     Twilight (civil / nautical / astronomical, altitude -6/-12/-18),
  *     Unequal_Hours (12 temporal hours of the night), Azimuth,
+ *     Analemma (the true Sun at a fixed local mean hour, one figure per hour),
  *     Ecliptic (a single line, the only circle of the band),
  *     Ecliptic_Calendar (365 days / 12 months, outside that line),
  *     Ecliptic_Zodiac (equal zodiac, 1 degree scale, inside that line),
@@ -48,6 +49,9 @@
  *     Capricorn, Equator and Cancer at k/12 (cos H0 = -tan(phi) tan(dec)).
  *   - Azimuth circle: passes through zenith and nadir and the horizon point of
  *     that azimuth (computed with the horizontal -> equatorial transform).
+ *   - Analemma for mean hour h: the Sun of each day at declination dec(d) and
+ *     hour angle (h - 12) * 15 + EoT(d), the equation of time being the mean
+ *     longitude minus the apparent right ascension.
  *   - Ecliptic: circle through the solstice points r(90-eps) and r(90+eps);
  *     the point of ecliptic longitude L is found from
  *     sin(dec) = sin(eps) sin(L), tan(RA) = cos(eps) tan(L).
@@ -83,6 +87,7 @@ include("scripts/EAction.js");
         almucantarLabelStep: 10,// label every n degrees of altitude (0 = none)
         azimuthStep: 10,        // degrees between azimuth lines
         twilights: [-6, -12, -18],// solar depressions: civil / nautical / astronomical
+        analemmaHours: [12],    // local MEAN hours to draw the analemma for (12 = mean noon)
         calendarYear: 2026,     // reference (non-leap) year for the 365 day calendar
 
         limbClockwise: true,    // limb 0 deg at top, increasing clockwise
@@ -102,6 +107,7 @@ include("scripts/EAction.js");
         ["Twilight",          [ 70,  70, 170]],
         ["Unequal_Hours",     [  0, 120, 100]],
         ["Azimuth",           [150,  60, 200]],
+        ["Analemma",          [ 30,  30,  30]],
         ["Ecliptic",          [200, 160,   0]],
         ["Ecliptic_Zodiac",   [190, 100,  20]],
         ["Ecliptic_Calendar", [120, 120,  20]],
@@ -133,6 +139,10 @@ include("scripts/EAction.js");
         ["Ursa Maior",            206.8851583,  49.3132667],  // Alkaid
         ["Pectus",                 10.1258333,  56.5373611]  // Schedar
     ];
+
+    var MONTHS = ["January", "February", "March", "April", "May", "June", "July",
+                  "August", "September", "October", "November", "December"];
+    var MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
     var PI = Math.PI;
     var TWO_PI = 2 * PI;
@@ -479,6 +489,53 @@ include("scripts/EAction.js");
     }
 
     // =======================================================================
+    // 3b. ANALEMMA: the true Sun at a fixed local MEAN time
+    // =======================================================================
+    // At mean hour h the mean sun stands at hour angle (h - 12) * 15 deg and
+    // the true Sun is ahead of it by the equation of time, so a year of daily
+    // positions closes into the figure of eight between the two tropics.
+    (function drawAnalemma() {
+        // equation of time (deg) = mean longitude - apparent right ascension
+        function sunAt(jd) {
+            var lam = rad(sunLongitude(jd));
+            var L = 280.460 + 0.9856474 * (jd - 2451545.0);
+            var ra = deg(Math.atan2(Math.cos(rad(eps)) * Math.sin(lam), Math.cos(lam)));
+            return { dec: Math.asin(Math.sin(rad(eps)) * Math.sin(lam)),
+                     eot: ((L - ra) % 360 + 540) % 360 - 180 };
+        }
+        for (var hi = 0; hi < cfg.analemmaHours.length; hi++) {
+            var hour = cfg.analemmaHours[hi], Hmean = (hour - 12) * 15;
+            var pts = [], marks = [], lowest = null;
+            for (var m = 0; m < 12; m++) {
+                for (var d = 1; d <= MONTH_DAYS[m]; d++) {
+                    var sn = sunAt(julianDay(cfg.calendarYear, m + 1, d) + hour / 24);
+                    var pp = plateFromEq(sn.dec, rad(Hmean + sn.eot));
+                    pp.r = Math.sqrt(pp.x * pp.x + pp.y * pp.y);
+                    pts.push(pp);
+                    if (d === 1) { marks.push({ p: pp, name: MONTHS[m].substring(0, 3) }); }
+                    if (lowest === null || pp.r < lowest.r) { lowest = pp; }
+                }
+            }
+            for (var i = 0; i < pts.length; i++) {            // closed curve
+                var q = pts[(i + 1) % pts.length];
+                addLine("Analemma", pts[i].x, pts[i].y, q.x, q.y);
+            }
+            // first of each month, named in a column east of the figure: the
+            // offset is perpendicular to the mean meridian, the same for all
+            var thM = PI / 2 - rad(Hmean), offX = -0.09 * Rc * Math.sin(thM),
+                offY = 0.09 * Rc * Math.cos(thM);
+            for (var k = 0; k < marks.length; k++) {
+                var mp = marks[k].p;
+                addCircle("Analemma", mp.x, mp.y, 0.006 * Rc);
+                addText("Analemma", mp.x + offX, mp.y + offY, 0.014 * Rc, marks[k].name, 0);
+            }
+            // the mean hour, at the Cancer end, just inside the curve
+            var f = (lowest.r - 0.035 * Rc) / lowest.r;
+            addText("Analemma", lowest.x * f, lowest.y * f, 0.018 * Rc, hour + "h", 0);
+        }
+    })();
+
+    // =======================================================================
     // 4. ECLIPTIC with ZODIAC (1 deg) and CALENDAR (365 days) scales
     // =======================================================================
     var eclTop = plateFromEcliptic(90), eclBot = plateFromEcliptic(270);
@@ -522,20 +579,17 @@ include("scripts/EAction.js");
     }
 
     // calendar: Sun position at 12:00 UT of each day of the reference year
-    var months = ["January", "February", "March", "April", "May", "June", "July",
-                  "August", "September", "October", "November", "December"];
-    var mdays = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     var sunLon = [];   // per month: array of longitudes
     for (var m = 0; m < 12; m++) {
         var arr = [];
-        for (var d = 1; d <= mdays[m]; d++) {
+        for (var d = 1; d <= MONTH_DAYS[m]; d++) {
             arr.push(sunLongitude(julianDay(cfg.calendarYear, m + 1, d) + 0.5));
         }
         sunLon.push(arr);
     }
     // calendar: ticks and labels on the outer side of the same line
     for (m = 0; m < 12; m++) {
-        for (d = 1; d <= mdays[m]; d++) {
+        for (d = 1; d <= MONTH_DAYS[m]; d++) {
             var rayD = eclRay(sunLon[m][d - 1]);
             var tl = (d === 1)      ? 0.028 * Rc :
                      (d % 10 === 0) ? 0.022 * Rc :
@@ -549,7 +603,7 @@ include("scripts/EAction.js");
         var l0 = sunLon[m][0];
         var l1 = sunLon[(m + 1) % 12][0];
         var span = (l1 - l0 + 360) % 360;
-        ringText("Ecliptic_Calendar", eclRay(l0 + span / 2), Re + 0.064 * Rc, 0.017 * Rc, months[m]);
+        ringText("Ecliptic_Calendar", eclRay(l0 + span / 2), Re + 0.064 * Rc, 0.017 * Rc, MONTHS[m]);
     }
 
     // =======================================================================
@@ -637,7 +691,8 @@ include("scripts/EAction.js");
     if (typeof __ASTROLABE_TEST__ !== "undefined") {
         __ASTROLABE_TEST__.geom = {
             Req: Req, Rcan: Rcan, Rc: Rc, Rl: Rl, Re: Re, calOut: calOut, zodIn: zodIn, limbW: limbW,
-            eclCy: eclCy, phi: phi,
+            eclCy: eclCy, phi: phi, eps: eps, year: cfg.calendarYear,
+            analemmaHours: cfg.analemmaHours,
             plateFromEcliptic: plateFromEcliptic, sunLongitude: sunLongitude, julianDay: julianDay
         };
     }
