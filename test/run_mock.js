@@ -5,19 +5,20 @@ var fs = require('fs'), vm = require('vm'), path = require('path');
 var D = parseFloat(process.argv[2] || 200), LAT = parseFloat(process.argv[3] || 50);
 var out = process.argv[4] || null;
 
-var ents = [], layers = {}, nextId = 1;
+var ents = [], layers = {}, layerObjs = [], nextId = 1;
 function V(x, y) { this.x = x; this.y = y; }
-function Ent(kind, d) { this.kind = kind; this.d = d; this.layer = null; }
+function Ent(kind, d) { this.kind = kind; this.d = d; this.layer = null; this.lw = undefined; }
 Ent.prototype.setLayerId = function (id) { this.layer = id; };
+Ent.prototype.setLineweight = function (w) { this.lw = w; };
 var g = {
   __ASTROLABE_TEST__: {},
   include: function () {},
   qDebug: function (s) { console.log(s); },
   RVector: V,
   RColor: function (r, gg, b) { this.c = [r, gg, b]; },
-  RLineweight: { Weight025: 1 },
+  RLineweight: { Weight000: 0, Weight025: 25, WeightByLayer: -1 },
   RS: { VAlignMiddle: 1, HAlignCenter: 1, LeftToRight: 1, Exact: 1 },
-  RLayer: function (doc, name) { this.name = name; },
+  RLayer: function (doc, name) { this.name = name; this.lineweight = arguments[6]; },
   RLineData: function (a, b) { this.a = a; this.b = b; },
   RCircleData: function (c, r) { this.c = c; this.r = r; },
   RArcData: function (c, r, a0, a1, rev) { this.c = c; this.r = r; this.a0 = a0; this.a1 = a1; },
@@ -48,7 +49,7 @@ var g = {
         },
         applyOperation: function (op) {
           op.objs.forEach(function (o) {
-            if (o.name) { layers[o.name] = nextId++; }
+            if (o.name) { layers[o.name] = nextId++; layerObjs.push(o); }
             else { ents.push(o); }
           });
         },
@@ -592,6 +593,15 @@ console.log('  print band reaches ' + (deepest / Rc_ * 100).toFixed(1) +
             '% of Rc inside the ecliptic line, nothing outside it');
 console.log('  print layers: ' + ECL.concat(['Print_Limb', 'Print_Index']).map(function (L) {
   return L + ' ' + ents.filter(function (e) { return e.L === L; }).length; }).join(', ') + ' entities');
+
+// 7h. line weights: every layer hairline, nothing overriding it
+check('a layer was created for each one in the script', layerObjs.length === Object.keys(layers).length,
+      layerObjs.length + ' created, ' + Object.keys(layers).length + ' known');
+var heavy = layerObjs.filter(function (l) { return l.lineweight !== g.RLineweight.Weight000; });
+check('every layer defaults to hairline (0.00 mm)', heavy.length === 0,
+      heavy.map(function (l) { return l.name + '=' + l.lineweight; }).join(', '));
+var own = ents.filter(function (e) { return e.lw !== g.RLineweight.WeightByLayer; });
+check('no entity carries its own weight', own.length === 0, own.length + ' of ' + ents.length);
 
 // 8. counts
 function n(L, k) { return ents.filter(function (e) { return e.L === L && (!k || e.kind === k); }).length; }

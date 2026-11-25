@@ -281,14 +281,17 @@ include("scripts/EAction.js");
     if (!di) { throw new Error("Astrolabe: no open drawing - create or open a drawing first"); }
     var doc = di.getDocument();
 
+    // every layer defaults to hairline (0.00 mm): the plotter or printer decides
+    // the stroke, not the drawing
     function makeLayer(name, c) {
         var color = new RColor(c[0], c[1], c[2]);
         try {
             return new RLayer(doc, name, false, false, color,
-                              doc.getLinetypeId("CONTINUOUS"), RLineweight.Weight025, false);
+                              doc.getLinetypeId("CONTINUOUS"), RLineweight.Weight000, false);
         } catch (e) {
             var l = new RLayer(doc, name);
             l.setColor(color);
+            if (l.setLineweight) { l.setLineweight(RLineweight.Weight000); }
             return l;
         }
     }
@@ -315,6 +318,8 @@ include("scripts/EAction.js");
 
     function put(layer, entity) {
         entity.setLayerId(layerIds[layer]);
+        // nothing carries its own weight, so the layer's hairline always wins
+        if (entity.setLineweight) { entity.setLineweight(RLineweight.WeightByLayer); }
         op.addObject(entity, false);
         counts[layer] = (counts[layer] || 0) + 1;
     }
