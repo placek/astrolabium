@@ -22,7 +22,7 @@ var g = {
   RCircleData: function (c, r) { this.c = c; this.r = r; },
   RArcData: function (c, r, a0, a1, rev) { this.c = c; this.r = r; this.a0 = a0; this.a1 = a1; },
   RTextData: function (pos, p2, h, w, va, ha, dd, ls, lf, text, font) {
-    var a = arguments; this.pos = pos; this.h = h; this.text = text;
+    var a = arguments; this.pos = pos; this.h = h; this.text = text; this.font = font;
     // accept only the 15-arg signature (without fontFile) to exercise the fallback
     if (a.length === 16) throw new Error('bad signature');
     this.ang = a[13];
@@ -523,6 +523,16 @@ Object.keys(perLayer).forEach(function (L) {
         perLayer[L] === bandLinesOf(L, 0, G.eclCy).length,
         (bandLinesOf(L, 0, G.eclCy).length - perLayer[L]) + ' stray');
 });
+var LA = ['Ianuarius', 'Februarius', 'Martius', 'Aprilis', 'Maius', 'Iunius',
+          'Iulius', 'Augustus', 'September', 'October', 'November', 'December'];
+check('print calendar names the months in Latin',
+      texts('Print_Calendar').map(function (e) { return e.d.text; }).sort().join(',') === LA.slice().sort().join(','),
+      texts('Print_Calendar').map(function (e) { return e.d.text; }).join(' '));
+check('the working calendar keeps the English names',
+      ents.filter(function (e) { return e.L === 'Ecliptic_Calendar' && e.kind === 'text' && /[A-Za-z]/.test(e.d.text); })
+        .map(function (e) { return e.d.text; }).sort().join(',') ===
+      ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August',
+       'September', 'October', 'November', 'December'].sort().join(','));
 check('the calendar is two rings only: days and month names',
       texts('Print_Calendar').length === 12 && texts('Print_Zodiac').length === 36 &&
       texts('Print_Moon').length === 0,
@@ -565,6 +575,19 @@ ents.filter(function (e) { return ECL.indexOf(e.L) >= 0; }).forEach(function (e)
 });
 check('the whole print band stays inside Capricorn', pOver < 1e-9,
       'max overshoot ' + (pOver / Rc_).toFixed(4) + ' Rc');
+var fonts = {};
+ents.filter(function (e) { return e.kind === 'text'; }).forEach(function (e) {
+  var k = (e.L.indexOf('Print_') === 0 ? 'print' : 'working') + ':' + e.d.font;
+  fonts[k] = (fonts[k] || 0) + 1;
+});
+check('the printable layers are lettered in Pfeffer Simpelgotisch',
+      Object.keys(fonts).filter(function (k) { return k.indexOf('print:') === 0; })
+        .join(',') === 'print:Pfeffer Simpelgotisch',
+      Object.keys(fonts).join(' | '));
+check('the working layers keep the Standard font',
+      Object.keys(fonts).filter(function (k) { return k.indexOf('working:') === 0; })
+        .join(',') === 'working:Standard');
+console.log('  lettering: ' + Object.keys(fonts).map(function (k) { return k + ' x' + fonts[k]; }).join(', '));
 console.log('  print band reaches ' + (deepest / Rc_ * 100).toFixed(1) +
             '% of Rc inside the ecliptic line, nothing outside it');
 console.log('  print layers: ' + ECL.concat(['Print_Limb', 'Print_Index']).map(function (L) {
@@ -592,7 +615,7 @@ if (out) {
       var a1 = d.a1; if (a1 < d.a0) a1 += 2 * Math.PI; var sweep = a1 - d.a0;
       svg.push('<path d="M' + (d.c.x + d.r * Math.cos(d.a0)) + ' ' + (d.c.y + d.r * Math.sin(d.a0)) + ' A' + d.r + ' ' + d.r + ' 0 ' + (sweep > Math.PI ? 1 : 0) + ' 1 ' + (d.c.x + d.r * Math.cos(a1)) + ' ' + (d.c.y + d.r * Math.sin(a1)) + '" stroke="' + c + '"/>');
     } else if (e.kind === 'text') {
-      svg.push('<text transform="translate(' + d.pos.x + ' ' + d.pos.y + ') scale(1,-1) rotate(' + (-deg(d.ang)) + ')" font-size="' + d.h + '" text-anchor="middle" dominant-baseline="central" fill="' + c + '" stroke="none" font-family="sans-serif">' + d.text + '</text>');
+      svg.push('<text transform="translate(' + d.pos.x + ' ' + d.pos.y + ') scale(1,-1) rotate(' + (-deg(d.ang)) + ')" font-size="' + d.h + '" text-anchor="middle" dominant-baseline="central" fill="' + c + '" stroke="none" font-family="' + (d.font === 'Standard' ? 'sans-serif' : d.font) + '">' + d.text + '</text>');
     }
   });
   svg.push('</g></svg>');

@@ -26,7 +26,7 @@
  * manner - concentric rings, one resolution per ring, the finest against the
  * scale's base line:
  *
- *     Print_Zodiac, Print_Moon and Print_Calendar (rings stacked inwards
+ *     Print_Zodiac, Print_Moon and Print_Calendar (Latin months; rings inwards
  *     from the ecliptic line, in that order; the line itself stays on the
  *     Ecliptic layer, shared by both layouts), Print_Limb (1 / 5 / 10 degree
  *     rings on Capricorn), Print_Index (the same as parallel bands beside
@@ -79,7 +79,8 @@
  *     ascension (RA 0 to +X), so only stars north of -eps fit on the plate.
  *   - Index: declination scale at radii r(90 - dec) along the index edge.
  *   - Printable layout: the same divisions, drawn from one ring of their
- *     track to the next instead of as free ticks on a single line.
+ *     track to the next instead of as free ticks on a single line, and
+ *     lettered in cfg.printFont rather than cfg.textFont.
  *
  * Orientation: +Y is the upper meridian (towards the zenith side), +X is
  * west, so the sky turns clockwise.  The rete is drawn with the solstice axis
@@ -111,7 +112,8 @@ include("scripts/EAction.js");
         indexAngle: 60.0,       // index direction (degrees, CCW from +X)
         indexSeparate: false,   // true: draw the index beside the astrolabe
 
-        textFont: "Standard"
+        textFont: "Standard",   // font of the working layers
+        printFont: "Pfeffer Simpelgotisch"  // font of the Print_* layers
     };
 
     // layer name -> [r, g, b]
@@ -165,6 +167,9 @@ include("scripts/EAction.js");
 
     var MONTHS = ["January", "February", "March", "April", "May", "June", "July",
                   "August", "September", "October", "November", "December"];
+    var MONTHS_LA = ["Ianuarius", "Februarius", "Martius", "Aprilis", "Maius",
+                     "Iunius", "Iulius", "Augustus", "September", "October",
+                     "November", "December"];        // printable layout
     var MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
     var PI = Math.PI;
@@ -327,15 +332,15 @@ include("scripts/EAction.js");
         put(layer, new RArcEntity(doc, new RArcData(new RVector(cx, cy), r, a0, a1, false)));
     }
 
-    function makeTextData(pos, h, str, ang) {
+    function makeTextData(pos, h, str, ang, font) {
         var variants = [
             function () {
                 return new RTextData(pos, pos, h, 0, RS.VAlignMiddle, RS.HAlignCenter,
-                    RS.LeftToRight, RS.Exact, 1.0, str, cfg.textFont, "", false, false, ang, true);
+                    RS.LeftToRight, RS.Exact, 1.0, str, font, "", false, false, ang, true);
             },
             function () {
                 return new RTextData(pos, pos, h, 0, RS.VAlignMiddle, RS.HAlignCenter,
-                    RS.LeftToRight, RS.Exact, 1.0, str, cfg.textFont, false, false, ang, true);
+                    RS.LeftToRight, RS.Exact, 1.0, str, font, false, false, ang, true);
             }
         ];
         for (var i = 0; i < variants.length; i++) {
@@ -345,9 +350,11 @@ include("scripts/EAction.js");
     }
 
     var textWarned = false;
-    // text centred at (x,y), rotated by ang (radians)
+    // text centred at (x,y), rotated by ang (radians); the printable layout is
+    // lettered in its own face
     function addText(layer, x, y, h, str, ang) {
-        var td = makeTextData(new RVector(x, y), h, String(str), ang);
+        var font = (layer.indexOf("Print_") === 0) ? cfg.printFont : cfg.textFont;
+        var td = makeTextData(new RVector(x, y), h, String(str), ang, font);
         if (!td) {
             if (!textWarned) { log("Astrolabe: RTextData signature not supported - labels skipped"); textWarned = true; }
             return;
@@ -718,7 +725,7 @@ include("scripts/EAction.js");
                 if (dd === 1) { monDiv.push(ad); }
             }
             var a0 = sunLon[mm][0], a1 = sunLon[(mm + 1) % 12][0];
-            monLab.push({ a: eclRay(a0 + ((a1 - a0 + 360) % 360) / 2).ang, s: MONTHS[mm] });
+            monLab.push({ a: eclRay(a0 + ((a1 - a0 + 360) % 360) / 2).ang, s: MONTHS_LA[mm] });
         }
         var z1 = [], z5 = [], z5Lab = [], zSign = [], zSignLab = [], moonA = [];
         for (var lo = 0; lo < 360; lo++) {
