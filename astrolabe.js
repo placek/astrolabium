@@ -13,7 +13,8 @@
  *     Equator, Tropic_Cancer, Tropic_Capricorn, Horizon, Almucantars,
  *     Twilight (civil / nautical / astronomical, altitude -6/-12/-18),
  *     Unequal_Hours (12 temporal hours of the night), Azimuth,
- *     Analemma (the true Sun at a fixed local mean hour, one figure per hour),
+ *     Analemma (the true Sun at a fixed local mean hour, one figure per hour,
+ *     stepped and marked by ecliptic longitude, named by the zodiac signs),
  *     Ecliptic (a single line, the only circle of the band),
  *     Ecliptic_Calendar (365 days / 12 months, outside that line),
  *     Ecliptic_Zodiac (equal zodiac, 1 degree scale, inside that line),
@@ -172,6 +173,8 @@ include("scripts/EAction.js");
                      "Iunius", "Iulius", "Augustus", "September", "October",
                      "November", "December"];        // printable layout
     var MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    var SIGNS = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo", "Libra",
+                 "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"];
 
     var PI = Math.PI;
     var TWO_PI = 2 * PI;
@@ -572,8 +575,11 @@ include("scripts/EAction.js");
     // 3b. ANALEMMA: the true Sun at a fixed local MEAN time
     // =======================================================================
     // At mean hour h the mean sun stands at hour angle (h - 12) * 15 deg and
-    // the true Sun is ahead of it by the equation of time, so a year of daily
-    // positions closes into the figure of eight between the two tropics.
+    // the true Sun is ahead of it by the equation of time, so a year of solar
+    // positions closes into the figure of eight between the two tropics.  It
+    // is stepped and marked by the Sun's ECLIPTIC LONGITUDE, not by the
+    // calendar: a division every degree, a tick every fifth and tenth, and the
+    // name of each sign where the Sun enters it.
     (function drawAnalemma() {
         // equation of time (deg) = mean longitude - apparent right ascension
         function sunAt(jd) {
@@ -583,45 +589,57 @@ include("scripts/EAction.js");
             return { dec: Math.asin(Math.sin(rad(eps)) * Math.sin(lam)),
                      eot: ((L - ra) % 360 + 540) % 360 - 180 };
         }
+        // the instant the Sun reaches a longitude: it never moves backwards, so
+        // a bisection over the year finds it
+        var jdY = julianDay(cfg.calendarYear, 1, 1), lonY = sunLongitude(jdY);
+        function jdOfLon(lon) {
+            var t = ((lon - lonY) % 360 + 360) % 360;
+            var a = jdY, b = jdY + 365.2422 - 0.001;
+            for (var i = 0; i < 50; i++) {
+                var mid = (a + b) / 2;
+                if (((sunLongitude(mid) - lonY) % 360 + 360) % 360 < t) { a = mid; } else { b = mid; }
+            }
+            return (a + b) / 2;
+        }
+        var sun = [];                                   // one entry per degree
+        for (var lo = 0; lo < 360; lo++) { sun.push(sunAt(jdOfLon(lo))); }
+
         for (var hi = 0; hi < cfg.analemmaHours.length; hi++) {
             var hour = cfg.analemmaHours[hi], Hmean = (hour - 12) * 15;
-            var pts = [], marks = [], lowest = null;
-            for (var m = 0; m < 12; m++) {
-                for (var d = 1; d <= MONTH_DAYS[m]; d++) {
-                    var sn = sunAt(julianDay(cfg.calendarYear, m + 1, d) + hour / 24);
-                    var pp = plateFromEq(sn.dec, rad(Hmean + sn.eot));
-                    pp.r = Math.sqrt(pp.x * pp.x + pp.y * pp.y);
-                    pp.day = d;
-                    pts.push(pp);
-                    if (d === 1) { marks.push({ p: pp, name: MONTHS[m].substring(0, 3) }); }
-                    if (lowest === null || pp.r < lowest.r) { lowest = pp; }
-                }
+            var pts = [], lowest = null;
+            for (lo = 0; lo < 360; lo++) {
+                var pp = plateFromEq(sun[lo].dec, rad(Hmean + sun[lo].eot));
+                pp.r = Math.sqrt(pp.x * pp.x + pp.y * pp.y);
+                pts.push(pp);
+                if (lowest === null || pp.r < lowest.r) { lowest = pp; }
             }
             var n = pts.length;
-            for (var i = 0; i < n; i++) {                     // closed curve
+            for (var i = 0; i < n; i++) {                   // closed curve
                 var q = pts[(i + 1) % n];
                 addLine("Analemma", pts[i].x, pts[i].y, q.x, q.y);
             }
-            // every fifth day, a tick across the curve (longer every tenth) so
-            // a date can be set between the month marks; no 30th, it would sit
-            // a day or two from the next month's dot
+            // every fifth degree of longitude, a tick across the curve, longer
+            // every tenth; the thirtieths are left to the sign marks
             for (i = 0; i < n; i++) {
-                if (pts[i].day % 5 !== 0 || pts[i].day > 25) { continue; }
+                if (i % 5 !== 0 || i % 30 === 0) { continue; }
                 var pv = pts[(i + n - 1) % n], nx = pts[(i + 1) % n];
                 var tx = nx.x - pv.x, ty = nx.y - pv.y, tl = Math.sqrt(tx * tx + ty * ty);
                 if (tl < 1e-12) { continue; }
-                var half = ((pts[i].day % 10 === 0) ? 0.017 : 0.012) * Rc / 2;
+                var half = ((i % 10 === 0) ? 0.017 : 0.012) * Rc / 2;
                 var ux = -ty / tl * half, uy = tx / tl * half;   // across the curve
                 addLine("Analemma", pts[i].x - ux, pts[i].y - uy, pts[i].x + ux, pts[i].y + uy);
             }
-            // first of each month, named in a column east of the figure: the
-            // offset is perpendicular to the mean meridian, the same for all
-            var thM = PI / 2 - rad(Hmean), offX = -0.09 * Rc * Math.sin(thM),
-                offY = 0.09 * Rc * Math.cos(thM);
-            for (var k = 0; k < marks.length; k++) {
-                var mp = marks[k].p;
+            // where the Sun enters each sign: a dot, and the sign abbreviated
+            // beside it - set across the figure, on the side that point is
+            // already on, so the name stays with its own mark
+            var thM = PI / 2 - rad(Hmean);
+            var px = -Math.sin(thM), py = Math.cos(thM);    // across the figure
+            for (var sg = 0; sg < 12; sg++) {
+                var mp = pts[sg * 30];
                 addCircle("Analemma", mp.x, mp.y, 0.006 * Rc);
-                addText("Analemma", mp.x + offX, mp.y + offY, 0.014 * Rc, marks[k].name, 0);
+                var off = ((mp.x * px + mp.y * py >= 0) ? 1 : -1) * 0.028 * Rc;
+                addText("Analemma", mp.x + off * px, mp.y + off * py, 0.016 * Rc,
+                        SIGNS[sg].substring(0, 3), 0);
             }
             // the mean hour, at the Cancer end, just inside the curve
             var f = (lowest.r - 0.035 * Rc) / lowest.r;
@@ -655,8 +673,6 @@ include("scripts/EAction.js");
         addTangentText(layer, rho * ray.cx, eclCy + rho * ray.cy, ray.ang, h, str);
     }
 
-    var signs = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo", "Libra",
-                 "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"];
     // zodiac: ticks and labels on the inner side of the ecliptic line
     for (var lon = 0; lon < 360; lon++) {
         var ray = eclRay(lon);
@@ -669,7 +685,7 @@ include("scripts/EAction.js");
         }
     }
     for (var s = 0; s < 12; s++) {
-        ringText("Ecliptic_Zodiac", eclRay(s * 30 + 15), Re - 0.066 * Rc, 0.018 * Rc, signs[s]);
+        ringText("Ecliptic_Zodiac", eclRay(s * 30 + 15), Re - 0.066 * Rc, 0.018 * Rc, SIGNS[s]);
     }
 
     // calendar: Sun position at 12:00 UT of each day of the reference year
@@ -733,7 +749,7 @@ include("scripts/EAction.js");
             if (lo % 10 === 0 && lo % 30 !== 0) { z5Lab.push({ a: az, s: lo % 30 }); }
             if (lo % 30 === 0) { zSign.push(az); }
         }
-        for (var sg = 0; sg < 12; sg++) { zSignLab.push({ a: eclRay(sg * 30 + 15).ang, s: signs[sg] }); }
+        for (var sg = 0; sg < 12; sg++) { zSignLab.push({ a: eclRay(sg * 30 + 15).ang, s: SIGNS[sg] }); }
         ringBand("Print_Zodiac", 0, eclCy,
                  [Re, Re - 0.018 * Rc, Re - 0.044 * Rc, Re - 0.074 * Rc],
                  [{ angles: z1 },
@@ -822,7 +838,7 @@ include("scripts/EAction.js");
             if (lo % 10 === 0 && lo % 30 !== 0) { d5Lab.push({ a: rad(lo), s: lo % 30 }); }
             if (lo % 30 === 0) { signO.push(rad(lo)); }
         }
-        for (var sg = 0; sg < 12; sg++) { signLabO.push({ a: rad(sg * 30 + 15), s: signs[sg] }); }
+        for (var sg = 0; sg < 12; sg++) { signLabO.push({ a: rad(sg * 30 + 15), s: SIGNS[sg] }); }
         for (var mk = 0; mk < cfg.synodicMonth; mk++) { moonO.push(rad(mk * moonStep)); }
 
         var dayO = [], monDivO = [], monLabO = [];

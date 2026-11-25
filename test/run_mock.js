@@ -363,68 +363,108 @@ check('every star labelled with its old name', labelErr.length === 0, 'wrong/far
 check('all star pointers inside Capricorn', reteDots.every(function (e) {
   return Math.hypot(e.d.c.x, e.d.c.y) + e.d.r <= D / 2; }));
 
-// 7e. analemma: every daily vertex at the Sun's declination and an hour angle
-// of (h - 12) * 15 + equation of time, closing into one figure per mean hour
-var MD = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+// 7e. analemma: stepped and marked by the Sun's ecliptic longitude - a vertex
+// every degree, a tick every fifth and tenth, a name where a sign begins
 function sunDecEot(jd) {                       // independent of the drawing code
   var lam = rad(G.sunLongitude(jd)), L = 280.460 + 0.9856474 * (jd - 2451545.0);
   var ra = deg(Math.atan2(Math.cos(rad(G.eps)) * Math.sin(lam), Math.cos(lam)));
   return { dec: deg(Math.asin(Math.sin(rad(G.eps)) * Math.sin(lam))),
            eot: ((L - ra) % 360 + 540) % 360 - 180 };
 }
+var jdY = G.julianDay(G.year, 1, 1), lonY = G.sunLongitude(jdY);
+function jdOfLon(lon) {                        // the Sun's longitude only grows
+  var t = ((lon - lonY) % 360 + 360) % 360, a = jdY, b = jdY + 365.2422 - 0.001;
+  for (var i = 0; i < 50; i++) {
+    var m = (a + b) / 2;
+    if (((G.sunLongitude(m) - lonY) % 360 + 360) % 360 < t) { a = m; } else { b = m; }
+  }
+  return (a + b) / 2;
+}
 var anaLines = ents.filter(function (e) { return e.L === 'Analemma' && e.kind === 'line'; });
 var hours = G.analemmaHours;
-var fifths = MD.reduce(function (a, n) { return a + Math.min(5, Math.floor(n / 5)); }, 0);  // 5,10,15,20,25
-var block = 365 + fifths;
-check('a closed figure of 365 days plus ' + fifths + ' five-day ticks per hour',
+var nTick = 0;
+for (var q = 0; q < 360; q++) { if (q % 5 === 0 && q % 30 !== 0) { nTick++; } }
+var block = 360 + nTick;
+check('a closed figure of 360 degrees plus ' + nTick + ' ticks per hour',
       anaLines.length === block * hours.length, anaLines.length + ' lines for ' + hours.length + ' hour(s)');
 var anaErr = 0, gapErr = 0, radOut = 0, tickErr = 0, perpErr = 0, lenErr = 0, minGap = 1e9, extremes = {};
 hours.forEach(function (hour, hi) {
-  var seg = anaLines.slice(hi * block, hi * block + 365);
-  var ticks = anaLines.slice(hi * block + 365, (hi + 1) * block);
-  var day = 0, t = 0, maxX = null, minX = null, prevTick = null;
-  for (var m = 0; m < 12; m++) {
-    for (var d = 1; d <= MD[m]; d++) {
-      var s = sunDecEot(G.julianDay(G.year, m + 1, d) + hour / 24);
-      var r = G.Req * Math.tan(rad(90 - s.dec) / 2), H = rad((hour - 12) * 15 + s.eot);
-      var x = r * Math.sin(H), y = r * Math.cos(H), a = seg[day].d.a;
-      anaErr = Math.max(anaErr, Math.hypot(a.x - x, a.y - y));
-      radOut = Math.max(radOut, r - D / 2, G.Rcan - r);
-      if (!maxX || s.eot > maxX.e) { maxX = { e: s.eot, m: m + 1, d: d }; }
-      if (!minX || s.eot < minX.e) { minX = { e: s.eot, m: m + 1, d: d }; }
-      var prev = seg[(day + 364) % 365].d.b;
-      gapErr = Math.max(gapErr, Math.hypot(prev.x - a.x, prev.y - a.y));
-      if (d % 5 === 0 && d <= 25) {            // a tick, centred on that day
-        var e = ticks[t++], mid = { x: (e.d.a.x + e.d.b.x) / 2, y: (e.d.a.y + e.d.b.y) / 2 };
-        tickErr = Math.max(tickErr, Math.hypot(mid.x - x, mid.y - y));
-        var tvx = e.d.b.x - e.d.a.x, tvy = e.d.b.y - e.d.a.y;
-        var cvx = seg[(day + 1) % 365].d.a.x - seg[(day + 364) % 365].d.a.x;
-        var cvy = seg[(day + 1) % 365].d.a.y - seg[(day + 364) % 365].d.a.y;
-        perpErr = Math.max(perpErr, Math.abs(tvx * cvx + tvy * cvy) /
-                                    (Math.hypot(tvx, tvy) * Math.hypot(cvx, cvy)));
-        lenErr = Math.max(lenErr, Math.abs(Math.hypot(tvx, tvy) -
-                          (d % 10 === 0 ? 0.017 : 0.012) * (D / 2)));
-        if (prevTick) { minGap = Math.min(minGap, Math.hypot(x - prevTick.x, y - prevTick.y)); }
-        prevTick = { x: x, y: y };
-      }
-      day++;
+  var seg = anaLines.slice(hi * block, hi * block + 360);
+  var ticks = anaLines.slice(hi * block + 360, (hi + 1) * block);
+  var t = 0, maxX = null, minX = null, prev = null;
+  for (var lon = 0; lon < 360; lon++) {
+    var sd = sunDecEot(jdOfLon(lon));
+    var r = G.Req * Math.tan(rad(90 - sd.dec) / 2), H = rad((hour - 12) * 15 + sd.eot);
+    var x = r * Math.sin(H), y = r * Math.cos(H), a = seg[lon].d.a;
+    anaErr = Math.max(anaErr, Math.hypot(a.x - x, a.y - y));
+    radOut = Math.max(radOut, r - D / 2, G.Rcan - r);
+    if (!maxX || sd.eot > maxX.e) { maxX = { e: sd.eot, lon: lon }; }
+    if (!minX || sd.eot < minX.e) { minX = { e: sd.eot, lon: lon }; }
+    var pv = seg[(lon + 359) % 360].d.b;
+    gapErr = Math.max(gapErr, Math.hypot(pv.x - a.x, pv.y - a.y));
+    if (lon % 5 === 0 && lon % 30 !== 0) {     // a tick, centred on that degree
+      var e = ticks[t++], mid = { x: (e.d.a.x + e.d.b.x) / 2, y: (e.d.a.y + e.d.b.y) / 2 };
+      tickErr = Math.max(tickErr, Math.hypot(mid.x - x, mid.y - y));
+      var tvx = e.d.b.x - e.d.a.x, tvy = e.d.b.y - e.d.a.y;
+      var cvx = seg[(lon + 1) % 360].d.a.x - seg[(lon + 359) % 360].d.a.x;
+      var cvy = seg[(lon + 1) % 360].d.a.y - seg[(lon + 359) % 360].d.a.y;
+      perpErr = Math.max(perpErr, Math.abs(tvx * cvx + tvy * cvy) /
+                                  (Math.hypot(tvx, tvy) * Math.hypot(cvx, cvy)));
+      lenErr = Math.max(lenErr, Math.abs(Math.hypot(tvx, tvy) -
+                        (lon % 10 === 0 ? 0.017 : 0.012) * (D / 2)));
+      if (prev) { minGap = Math.min(minGap, Math.hypot(x - prev.x, y - prev.y)); }
+      prev = { x: x, y: y };
     }
   }
-  extremes[hour] = (maxX.e * 4).toFixed(2) + ' min on ' + maxX.m + '-' + maxX.d + ', ' +
-                   (minX.e * 4).toFixed(2) + ' min on ' + minX.m + '-' + minX.d;
+  extremes[hour] = (maxX.e * 4).toFixed(2) + ' min at lon ' + maxX.lon + ', ' +
+                   (minX.e * 4).toFixed(2) + ' min at lon ' + minX.lon;
 });
-check('analemma vertices at dec and EoT of their day', anaErr < 1e-9, 'max err ' + anaErr.toExponential(2));
+check('analemma vertices at the Sun of their longitude', anaErr < 1e-9, 'max err ' + anaErr.toExponential(2));
 check('analemma closes on itself', gapErr < 1e-9, 'max gap ' + gapErr.toExponential(2));
 check('analemma between the tropics', radOut < 1e-9, 'max overshoot ' + radOut.toExponential(2));
-check('five-day ticks centred on their day', tickErr < 1e-9, 'max err ' + tickErr.toExponential(2));
-check('five-day ticks across the curve', perpErr < 1e-9, 'max |cos| ' + perpErr.toExponential(2));
+check('ticks centred on their degree', tickErr < 1e-9, 'max err ' + tickErr.toExponential(2));
+check('ticks across the curve', perpErr < 1e-9, 'max |cos| ' + perpErr.toExponential(2));
 check('tick lengths 0.012 / 0.017 Rc', lenErr < 1e-9, 'max err ' + lenErr.toExponential(2));
+// a dot and the sign's abbreviation where the Sun enters each sign
+var ABBR = ['Ari', 'Tau', 'Gem', 'Can', 'Leo', 'Vir',
+            'Lib', 'Sco', 'Sag', 'Cap', 'Aqu', 'Pis'];
+var dots = ents.filter(function (e) { return e.L === 'Analemma' && e.kind === 'circle'; });
+var aText = ents.filter(function (e) { return e.L === 'Analemma' && e.kind === 'text'; });
+check('a dot where the Sun enters each sign', dots.length === 12 * hours.length);
+var dotErr = 0;
+hours.forEach(function (hour, hi) {
+  for (var sg = 0; sg < 12; sg++) {
+    var sd = sunDecEot(jdOfLon(sg * 30));
+    var r = G.Req * Math.tan(rad(90 - sd.dec) / 2), H = rad((hour - 12) * 15 + sd.eot);
+    var c = dots[hi * 12 + sg].d.c;
+    dotErr = Math.max(dotErr, Math.hypot(c.x - r * Math.sin(H), c.y - r * Math.cos(H)));
+  }
+});
+check('sign dots at the entry into the sign', dotErr < 1e-9, 'max err ' + dotErr.toExponential(2));
+check('the twelve signs are named by their abbreviations',
+      aText.filter(function (e) { return ABBR.indexOf(e.d.text) >= 0; }).length === 12 * hours.length &&
+      ABBR.every(function (y) { return aText.some(function (e) { return e.d.text === y; }); }),
+      aText.map(function (e) { return e.d.text; }).join(' '));
+// each name stands beside its own dot, across the figure, on the dot's side
+var labErr = 0, sideBad = 0;
+hours.forEach(function (hour, hi) {
+  var thM = Math.PI / 2 - rad((hour - 12) * 15);
+  var px = -Math.sin(thM), py = Math.cos(thM);
+  for (var sg = 0; sg < 12; sg++) {
+    var c = dots[hi * 12 + sg].d.c;
+    var lab = aText.filter(function (e) { return e.d.text === ABBR[sg]; })[hi];
+    var dx = lab.d.pos.x - c.x, dy = lab.d.pos.y - c.y;
+    labErr = Math.max(labErr, Math.abs(Math.hypot(dx, dy) - 0.028 * (D / 2)),
+                              Math.abs(dx * py - dy * px));          // purely across
+    if ((dx * px + dy * py) * (c.x * px + c.y * py) < 0) { sideBad++; }
+  }
+});
+check('each sign name stands 0.028 Rc across from its own dot', labErr < 1e-9,
+      'max err ' + labErr.toExponential(2));
+check('and on the side of the figure that dot is on', sideBad === 0, sideBad + ' on the wrong side');
 hours.forEach(function (h) { console.log('  analemma ' + h + 'h: equation of time ' + extremes[h]); });
-console.log('  tightest spacing between five-day ticks: ' + minGap.toFixed(2) + ' units (' +
+console.log('  tightest spacing between five-degree ticks: ' + minGap.toFixed(2) + ' units (' +
             (minGap / (D / 2) * 100).toFixed(2) + '% of Rc)');
-check('month dots and names, one hour label', ['circle', 'text'].every(function (k) {
-  return ents.filter(function (e) { return e.L === 'Analemma' && e.kind === k; }).length ===
-         (k === 'circle' ? 12 : 13) * hours.length; }));
 
 // 7g. the printable ringed layouts: every division runs between the two rings
 // of its track (broken only where a number sits), on the same rays as the
@@ -556,6 +596,7 @@ uni.forEach(function (a, i) { uniErr = Math.max(uniErr, Math.abs(a - rad(i))); }
 check('outer degrees are equal angles about the pole', uniErr < 1e-9,
       'max err ' + deg(uniErr).toExponential(2) + ' deg');
 // and the days sit at the Sun's longitude for their date
+var MD = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 var dayA = trackAngles('Print_Calendar', 0, 0, oB[4], oB[5]), want = [], dayErr = 0;
 for (var m2 = 1; m2 <= 12; m2++) {
   for (var d2 = 1; d2 <= MD[m2 - 1]; d2++) {
@@ -634,7 +675,7 @@ check('the printable layers are lettered in Pfeffer Simpelgotisch',
       Object.keys(fonts).join(' | '));
 check('the working layers keep the Standard font',
       Object.keys(fonts).filter(function (k) { return k.indexOf('working:') === 0; })
-        .join(',') === 'working:Standard');
+        .join(',') === 'working:Standard', Object.keys(fonts).join(' | '));
 console.log('  lettering: ' + Object.keys(fonts).map(function (k) { return k + ' x' + fonts[k]; }).join(', '));
 console.log('  print band reaches ' + (deepest / Rc_ * 100).toFixed(1) +
             '% of Rc inside the ecliptic line, nothing outside it');
