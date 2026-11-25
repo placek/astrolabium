@@ -17,6 +17,7 @@
  *     Ecliptic (a single line, the only circle of the band),
  *     Ecliptic_Calendar (365 days / 12 months, outside that line),
  *     Ecliptic_Zodiac (equal zodiac, 1 degree scale, inside that line),
+ *     Ecliptic_Moon (29 1/2 days of the synodic month, deeper inside),
  *     Rete (19 star pointers with their Latin names),
  *     Index (base line + declination scale), Limb (360 degree scale standing
  *     on the Tropic of Capricorn)
@@ -61,6 +62,9 @@
  *     both index the same rays out of the ecliptic centre, the calendar drawn
  *     outwards (Re .. Re + calOut), the zodiac inwards (Re - zodIn .. Re).  No
  *     further circle is drawn for either scale.
+ *   - Lunar scale: a tick every 360 / 29.530588 = 12.1907 deg of ecliptic
+ *     longitude, the Moon's daily gain on the Sun; counted from the Sun's
+ *     date mark it gives the Moon's mean longitude (no absolute meaning).
  *   - Star: r = R_eq tan((90 - dec)/2) at the rete angle of its right
  *     ascension (RA 0 to +X), so only stars north of -eps fit on the plate.
  *   - Index: declination scale at radii r(90 - dec) along the index edge.
@@ -83,6 +87,7 @@ include("scripts/EAction.js");
         askUser: true,          // show input dialogs for diameter / latitude
 
         obliquity: 23.4393,     // obliquity of the ecliptic, degrees
+        synodicMonth: 29.530588,// days from new moon to new moon (lunar scale)
         almucantarStep: 5,      // degrees between almucantars
         almucantarLabelStep: 10,// label every n degrees of altitude (0 = none)
         azimuthStep: 10,        // degrees between azimuth lines
@@ -111,6 +116,7 @@ include("scripts/EAction.js");
         ["Ecliptic",          [200, 160,   0]],
         ["Ecliptic_Zodiac",   [190, 100,  20]],
         ["Ecliptic_Calendar", [120, 120,  20]],
+        ["Ecliptic_Moon",     [100, 120, 160]],
         ["Rete",              [150,  20,  60]],
         ["Index",             [230,  40, 140]],
         ["Limb",              [ 90,  90,  90]]
@@ -621,6 +627,23 @@ include("scripts/EAction.js");
     }
 
     // =======================================================================
+    // 4c. LUNAR SCALE: the 29 1/2 days of the synodic month
+    // =======================================================================
+    // The Moon gains 360 / 29.530588 = 12.1907 deg of ecliptic longitude on the
+    // Sun each day, so counting these divisions from the Sun's date mark gives
+    // its mean place.  Only the count from the Sun means anything - never the
+    // absolute division - so the scale carries no numbers and is read by the
+    // length of its ticks (every fifth and tenth longer).  The origin is put at
+    // 0 deg Aries; the wider gap before it is the half day the month leaves over.
+    var moonStep = 360 / cfg.synodicMonth;
+    var moonTop = Re - 0.084 * Rc;              // clear of the zodiac sign names
+    for (var mday = 0; mday < cfg.synodicMonth; mday++) {
+        var mlen = (mday % 10 === 0) ? 0.026 * Rc :
+                   (mday % 5 === 0)  ? 0.020 * Rc : 0.014 * Rc;
+        radial("Ecliptic_Moon", eclRay(mday * moonStep), moonTop, moonTop - mlen);
+    }
+
+    // =======================================================================
     // 4b. RETE: star pointers
     // =======================================================================
     // A star of declination dec sits at r = Req * tan((90 - dec) / 2), so only
@@ -706,6 +729,7 @@ include("scripts/EAction.js");
         __ASTROLABE_TEST__.geom = {
             Req: Req, Rcan: Rcan, Rc: Rc, Rl: Rl, Re: Re, calOut: calOut, zodIn: zodIn, limbW: limbW,
             eclCy: eclCy, phi: phi, eps: eps, year: cfg.calendarYear,
+            synodicMonth: cfg.synodicMonth, moonTop: moonTop,
             analemmaHours: cfg.analemmaHours,
             plateFromEcliptic: plateFromEcliptic, sunLongitude: sunLongitude, julianDay: julianDay
         };

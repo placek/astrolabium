@@ -296,6 +296,45 @@ check('scale ticks stand on the base line', ticks.every(function (e) {
 check('scale ticks all on one side', ticks.every(function (e) {
   return Math.max(off(e.d.a), off(e.d.b)) > -1e-9; }));
 
+// 7f. lunar scale: a tick every 360 / synodic month of ecliptic longitude, in
+// its own zone inside the zodiac, with no ring of its own
+function plateFromLon(lonDeg) {                // independent of the drawing code
+  var L = rad(lonDeg), e = rad(G.eps);
+  var dec = Math.asin(Math.sin(e) * Math.sin(L));
+  var ra = Math.atan2(Math.cos(e) * Math.sin(L), Math.cos(L));
+  var r = G.Req * Math.tan((Math.PI / 2 - dec) / 2), H = Math.PI / 2 - ra;
+  return { x: r * Math.sin(H), y: r * Math.cos(H) };
+}
+var moonTicks = ents.filter(function (e) { return e.L === 'Ecliptic_Moon' && e.kind === 'line'; });
+var moonStep = 360 / G.synodicMonth;
+check('no ring on the lunar scale', curves('Ecliptic_Moon').length === 0);
+check('the synodic month is 29.530588 days', Math.abs(G.synodicMonth - 29.530588) < 5e-4,
+      'cfg says ' + G.synodicMonth);
+check('one tick per whole day of the month', moonTicks.length === Math.floor(G.synodicMonth) + 1,
+      moonTicks.length + ' ticks, step ' + moonStep.toFixed(4) + ' deg');
+var rayErr = 0, topErr = 0, mlenErr = 0, deepest = 0;
+moonTicks.forEach(function (e, k) {
+  var p = plateFromLon(k * moonStep), want = Math.atan2(p.y - G.eclCy, p.x);
+  [e.d.a, e.d.b].forEach(function (q) {
+    var got = Math.atan2(q.y - G.eclCy, q.x);
+    rayErr = Math.max(rayErr, Math.abs(((got - want + Math.PI * 3) % (2 * Math.PI)) - Math.PI));
+  });
+  var r1 = Math.hypot(e.d.a.x, e.d.a.y - G.eclCy), r2 = Math.hypot(e.d.b.x, e.d.b.y - G.eclCy);
+  topErr = Math.max(topErr, Math.abs(Math.max(r1, r2) - G.moonTop));
+  var want2 = (k % 10 === 0 ? 0.026 : k % 5 === 0 ? 0.020 : 0.014) * (D / 2);
+  mlenErr = Math.max(mlenErr, Math.abs(Math.abs(r1 - r2) - want2));
+  deepest = Math.max(deepest, G.Re - Math.min(r1, r2));
+});
+check('ticks on the rays of 0, 12.19, 24.38 ... deg of longitude', rayErr < 1e-9, 'max err ' + deg(rayErr).toExponential(2) + ' deg');
+check('ticks hang from one depth inside the zodiac', topErr < 1e-9, 'max err ' + topErr.toExponential(2));
+check('tick lengths 0.014 / 0.020 / 0.026 Rc', mlenErr < 1e-9, 'max err ' + mlenErr.toExponential(2));
+// the zodiac sign names end at 0.066 Rc + half their height
+var signInner = 0.066 * (D / 2) + 0.018 * (D / 2) / 2;
+check('clear of the zodiac sign names', G.Re - G.moonTop > signInner,
+      'gap ' + ((G.Re - G.moonTop - signInner) / (D / 2) * 100).toFixed(2) + '% of Rc');
+console.log('  lunar scale occupies ' + ((G.Re - G.moonTop) / (D / 2) * 100).toFixed(1) + '% to ' +
+            (deepest / (D / 2) * 100).toFixed(1) + '% of Rc inside the ecliptic line');
+
 // 7d. rete: every star of data/stars.txt drawn at r = Req tan((90-dec)/2) and
 // at a plate angle equal to its right ascension, labelled with its Latin name
 var starRows = fs.readFileSync(path.join(__dirname, '..', 'data', 'stars.txt'), 'utf8')
@@ -397,7 +436,7 @@ console.log(fails ? fails + ' FAILED' : 'ALL PASSED');
 
 // SVG preview
 if (out) {
-  var col = { Equator: '#00a000', Tropic_Cancer: '#dc7800', Tropic_Capricorn: '#1e5ae6', Horizon: '#dc0000', Almucantars: '#0096be', Twilight: '#4646aa', Unequal_Hours: '#007864', Azimuth: '#963cc8', Analemma: '#1e1e1e', Ecliptic: '#c8a000', Ecliptic_Zodiac: '#be6414', Ecliptic_Calendar: '#787814', Rete: '#96143c', Index: '#e6288c', Limb: '#555' };
+  var col = { Equator: '#00a000', Tropic_Cancer: '#dc7800', Tropic_Capricorn: '#1e5ae6', Horizon: '#dc0000', Almucantars: '#0096be', Twilight: '#4646aa', Unequal_Hours: '#007864', Azimuth: '#963cc8', Analemma: '#1e1e1e', Ecliptic: '#c8a000', Ecliptic_Zodiac: '#be6414', Ecliptic_Calendar: '#787814', Ecliptic_Moon: '#6478a0', Rete: '#96143c', Index: '#e6288c', Limb: '#555' };
   var S = G.Rl * 1.08, sw = D / 700, svg = [];
   svg.push('<svg xmlns="http://www.w3.org/2000/svg" viewBox="' + -S + ' ' + -S + ' ' + 2 * S + ' ' + 2 * S + '" width="1400" height="1400"><rect x="' + -S + '" y="' + -S + '" width="' + 2 * S + '" height="' + 2 * S + '" fill="white"/><g transform="scale(1,-1)" fill="none" stroke-width="' + sw + '">');
   ents.forEach(function (e) {
