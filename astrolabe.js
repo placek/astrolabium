@@ -22,6 +22,16 @@
  *     Index (base line + declination scale), Limb (360 degree scale standing
  *     on the Tropic of Capricorn)
  *
+ * and a second, printable layout of the same three scales in the historical
+ * manner - concentric rings, one resolution per ring, the finest against the
+ * scale's base line:
+ *
+ *     Print_Zodiac, Print_Moon and Print_Calendar (rings stacked inwards
+ *     from the ecliptic line, in that order; the line itself stays on the
+ *     Ecliptic layer, shared by both layouts), Print_Limb (1 / 5 / 10 degree
+ *     rings on Capricorn), Print_Index (the same as parallel bands beside
+ *     the fiducial line)
+ *
  * Run it in QCAD with an open drawing: Misc > Development > Run Script...
  * (or File > Open Script / "Run Script"), then pick this file.
  *
@@ -68,6 +78,8 @@
  *   - Star: r = R_eq tan((90 - dec)/2) at the rete angle of its right
  *     ascension (RA 0 to +X), so only stars north of -eps fit on the plate.
  *   - Index: declination scale at radii r(90 - dec) along the index edge.
+ *   - Printable layout: the same divisions, drawn from one ring of their
+ *     track to the next instead of as free ticks on a single line.
  *
  * Orientation: +Y is the upper meridian (towards the zenith side), +X is
  * west, so the sky turns clockwise.  The rete is drawn with the solstice axis
@@ -119,7 +131,12 @@ include("scripts/EAction.js");
         ["Ecliptic_Moon",     [100, 120, 160]],
         ["Rete",              [150,  20,  60]],
         ["Index",             [230,  40, 140]],
-        ["Limb",              [ 90,  90,  90]]
+        ["Limb",              [ 90,  90,  90]],
+        ["Print_Calendar",    [ 25, 100,  60]],
+        ["Print_Zodiac",      [ 10,  95, 115]],
+        ["Print_Moon",        [ 75,  90, 150]],
+        ["Print_Limb",        [ 50,  50,  50]],
+        ["Print_Index",       [140,  40,  40]]
     ];
 
     // 19 traditional astrolabe stars: Latin name, RA, declination (J2000,
@@ -366,6 +383,48 @@ include("scripts/EAction.js");
             if (Math.sqrt(mx * mx + my * my) <= Rc * (1 + 1e-9)) {
                 if (e - s >= TWO_PI - 1e-9) { addCircle(layer, cx, cy, r); }
                 else { addArc(layer, cx, cy, r, a0 + s, a0 + e); }
+            }
+        }
+    }
+
+    // A band of concentric tracks about (cx, cy) - the historical way of laying
+    // out a scale: bounds[] are the ring radii from the base line outwards (or
+    // inwards), and track i, between bounds[i] and bounds[i+1], carries its own
+    // set of division angles, the finest next to the base line.  Each track may
+    // name its divisions, centred in the ring.
+    function labelAt(labels, a) {
+        for (var i = 0; i < labels.length; i++) {
+            if (Math.abs(labels[i].a - a) < 1e-9) { return true; }
+        }
+        return false;
+    }
+
+    function ringBand(layer, cx, cy, bounds, tracks, skipFirstCircle) {
+        for (var i = skipFirstCircle ? 1 : 0; i < bounds.length; i++) {
+            addCircle(layer, cx, cy, bounds[i]);
+        }
+        for (i = 0; i < tracks.length; i++) {
+            var r1 = bounds[i], r2 = bounds[i + 1], t = tracks[i], k, a;
+            var rm = (r1 + r2) / 2, half = (t.labels ? 1.3 * t.textH : 0) / 2;
+            function ray(ra, rb, ang) {
+                addLine(layer, cx + ra * Math.cos(ang), cy + ra * Math.sin(ang),
+                               cx + rb * Math.cos(ang), cy + rb * Math.sin(ang));
+            }
+            for (k = 0; k < t.angles.length; k++) {
+                a = t.angles[k];
+                // a division that carries a number is broken where the number sits
+                if (half > 0 && labelAt(t.labels, a)) {
+                    ray(r1, rm + (r1 > r2 ? half : -half), a);
+                    ray(rm + (r1 > r2 ? -half : half), r2, a);
+                } else {
+                    ray(r1, r2, a);
+                }
+            }
+            if (!t.labels) { continue; }
+            for (k = 0; k < t.labels.length; k++) {
+                a = t.labels[k].a;
+                addTangentText(layer, cx + rm * Math.cos(a), cy + rm * Math.sin(a),
+                               a, t.textH, t.labels[k].s);
             }
         }
     }
@@ -644,6 +703,53 @@ include("scripts/EAction.js");
     }
 
     // =======================================================================
+    // 4d. PRINT_CALENDAR / _ZODIAC / _MOON: the same scales as rings
+    // =======================================================================
+    // All of it stacks inwards from the ecliptic line: the zodiac first
+    // (1 deg, 5 deg with numbers, signs), then the Moon's 29 1/2 days, then
+    // the calendar (days, months).  Finest next to the line, coarsest
+    // furthest from it.
+    (function printEcliptic() {
+        var calDay = [], monDiv = [], monLab = [];
+        for (var mm = 0; mm < 12; mm++) {
+            for (var dd = 1; dd <= MONTH_DAYS[mm]; dd++) {
+                var ad = eclRay(sunLon[mm][dd - 1]).ang;
+                calDay.push(ad);
+                if (dd === 1) { monDiv.push(ad); }
+            }
+            var a0 = sunLon[mm][0], a1 = sunLon[(mm + 1) % 12][0];
+            monLab.push({ a: eclRay(a0 + ((a1 - a0 + 360) % 360) / 2).ang, s: MONTHS[mm] });
+        }
+        var z1 = [], z5 = [], z5Lab = [], zSign = [], zSignLab = [], moonA = [];
+        for (var lo = 0; lo < 360; lo++) {
+            var az = eclRay(lo).ang;
+            z1.push(az);
+            if (lo % 5 === 0) { z5.push(az); }
+            if (lo % 10 === 0 && lo % 30 !== 0) { z5Lab.push({ a: az, s: lo % 30 }); }
+            if (lo % 30 === 0) { zSign.push(az); }
+        }
+        for (var sg = 0; sg < 12; sg++) { zSignLab.push({ a: eclRay(sg * 30 + 15).ang, s: signs[sg] }); }
+        for (var mk = 0; mk < cfg.synodicMonth; mk++) { moonA.push(eclRay(mk * moonStep).ang); }
+
+        // Everything stacks inwards from the ecliptic line - zodiac, Moon, then
+        // the calendar - so no part of the band crosses the plate edge where
+        // the ecliptic touches Capricorn.  Each scale owns the rings it adds;
+        // the line itself is drawn once, on the Ecliptic layer the two layouts
+        // share.  The calendar is two rings only: the days and their months.
+        ringBand("Print_Zodiac", 0, eclCy,
+                 [Re, Re - 0.018 * Rc, Re - 0.044 * Rc, Re - 0.074 * Rc],
+                 [{ angles: z1 },
+                  { angles: z5, labels: z5Lab, textH: 0.013 * Rc },
+                  { angles: zSign, labels: zSignLab, textH: 0.017 * Rc }], true);
+        ringBand("Print_Moon", 0, eclCy, [Re - 0.074 * Rc, Re - 0.096 * Rc],
+                 [{ angles: moonA }], true);
+        ringBand("Print_Calendar", 0, eclCy,
+                 [Re - 0.096 * Rc, Re - 0.118 * Rc, Re - 0.146 * Rc],
+                 [{ angles: calDay },
+                  { angles: monDiv, labels: monLab, textH: 0.017 * Rc }], true);
+    })();
+
+    // =======================================================================
     // 4b. RETE: star pointers
     // =======================================================================
     // A star of declination dec sits at r = Req * tan((90 - dec) / 2), so only
@@ -681,13 +787,35 @@ include("scripts/EAction.js");
     }
 
     // =======================================================================
+    // 5b. PRINT_LIMB: 1 / 5 / 10 degree rings standing on Capricorn
+    // =======================================================================
+    (function printLimb() {
+        var deg1 = [], deg5 = [], deg10 = [], lab = [];
+        for (var g2 = 0; g2 < 360; g2++) {
+            var th2 = PI / 2 + dirSign * rad(g2);
+            deg1.push(th2);
+            if (g2 % 5 === 0) { deg5.push(th2); }
+            if (g2 % 10 === 0) { deg10.push(th2); lab.push({ a: th2, s: g2 }); }
+        }
+        ringBand("Print_Limb", 0, 0,
+                 [Rc, Rc + 0.022 * Rc, Rc + 0.044 * Rc, Rl],
+                 [{ angles: deg1 },
+                  { angles: deg5 },
+                  { angles: deg10, labels: lab, textH: 0.018 * Rc }], false);
+    })();
+
+    // =======================================================================
     // 6. INDEX with DECLINATION SCALE
     // =======================================================================
+    // where the rule lies, shared by the working and the printed layout
+    function indexFrame() {
+        var f = { L: Rl, ia: rad(cfg.indexAngle), ox: 0, oy: 0 };
+        if (cfg.indexSeparate) { f.ia = 0; f.ox = Rl + 0.25 * Rc; }
+        return f;
+    }
+
     (function drawIndex() {
-        var L = Rl;                        // length from pivot
-        var ia = rad(cfg.indexAngle);
-        var ox = 0, oy = 0;
-        if (cfg.indexSeparate) { ia = 0; ox = Rl + 0.25 * Rc; oy = 0; }
+        var fr = indexFrame(), L = fr.L, ia = fr.ia, ox = fr.ox, oy = fr.oy;
         var ca = Math.cos(ia), sa = Math.sin(ia);
         function gx(u, v) { return ox + u * ca - v * sa; }
         function gy(u, v) { return oy + u * sa + v * ca; }
@@ -707,6 +835,43 @@ include("scripts/EAction.js");
             if (dec % 10 === 0) {
                 addText("Index", gx(r, -0.0175 * Rc), gy(r, -0.0175 * Rc), 0.016 * Rc, dec,
                         ia + (flip ? PI : 0));
+            }
+        }
+    })();
+
+    // =======================================================================
+    // 6b. PRINT_INDEX: the declination scale as parallel bands
+    // =======================================================================
+    // The straight-line form of the ringed band: the fiducial line takes the
+    // place of the base circle, with the 1 / 5 / 10 degree tracks stacked
+    // beside it, finest against the line.  No outline, as on the working rule.
+    (function printIndex() {
+        var fr = indexFrame(), L = fr.L, ia = fr.ia, ox = fr.ox, oy = fr.oy;
+        var ca = Math.cos(ia), sa = Math.sin(ia);
+        function gx(u, v) { return ox + u * ca - v * sa; }
+        function gy(u, v) { return oy + u * sa + v * ca; }
+        function line(u1, v1, u2, v2) {
+            addLine("Print_Index", gx(u1, v1), gy(u1, v1), gx(u2, v2), gy(u2, v2));
+        }
+        var bounds = [0, 0.022 * Rc, 0.044 * Rc, 0.080 * Rc];   // across the rule
+        var flip = Math.cos(ia) < -1e-9;
+        var uMin = 1e30, uMax = -1e30, decs = [];
+        for (var dec = 89; dec >= -89; dec--) {
+            var r = Req * Math.tan(rad(90 - dec) / 2);
+            if (r > L - 0.015 * Rc) { break; }
+            if (r < 0.02 * Rc) { continue; }
+            decs.push({ dec: dec, u: r });
+            uMin = Math.min(uMin, r); uMax = Math.max(uMax, r);
+        }
+        line(0, 0, L, 0);                                  // fiducial, full length
+        for (var b = 1; b < bounds.length; b++) { line(uMin, bounds[b], uMax, bounds[b]); }
+        for (var i = 0; i < decs.length; i++) {
+            var d = decs[i].dec, u = decs[i].u;
+            var top = (d % 10 === 0) ? bounds[3] : (d % 5 === 0) ? bounds[2] : bounds[1];
+            line(u, 0, u, top);
+            if (d % 10 === 0) {
+                var vm = (bounds[2] + bounds[3]) / 2;
+                addText("Print_Index", gx(u, vm), gy(u, vm), 0.016 * Rc, d, ia + (flip ? PI : 0));
             }
         }
     })();

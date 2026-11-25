@@ -425,6 +425,151 @@ check('month dots and names, one hour label', ['circle', 'text'].every(function 
   return ents.filter(function (e) { return e.L === 'Analemma' && e.kind === k; }).length ===
          (k === 'circle' ? 12 : 13) * hours.length; }));
 
+// 7g. the printable ringed layouts: every division runs between the two rings
+// of its track (broken only where a number sits), on the same rays as the
+// working layer
+function bandLinesOf(L, cx, cy) {                  // L: one layer or a list
+  var set = [].concat(L);
+  return ents.filter(function (e) { return set.indexOf(e.L) >= 0 && e.kind === 'line'; }).map(function (e) {
+    var r1 = Math.hypot(e.d.a.x - cx, e.d.a.y - cy), r2 = Math.hypot(e.d.b.x - cx, e.d.b.y - cy);
+    return { lo: Math.min(r1, r2), hi: Math.max(r1, r2),
+             a1: Math.atan2(e.d.a.y - cy, e.d.a.x - cx), a2: Math.atan2(e.d.b.y - cy, e.d.b.x - cx) };
+  });
+}
+function norm(a) { return ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI); }
+// lines of one track: those whose radii both lie inside that ring gap
+function trackLines(L, cx, cy, b1, b2) {
+  var lo = Math.min(b1, b2), hi = Math.max(b1, b2);
+  return bandLinesOf(L, cx, cy).filter(function (l) {
+    return l.lo > lo - 1e-9 && l.hi < hi + 1e-9; });
+}
+function trackAngles(L, cx, cy, b1, b2) {          // one entry per division
+  var seen = [];
+  trackLines(L, cx, cy, b1, b2).forEach(function (l) {
+    var a = norm(l.a1);
+    if (!seen.some(function (x) { return Math.abs(x - a) < 1e-9; })) { seen.push(a); }
+  });
+  return seen.sort(function (a, b) { return a - b; });
+}
+function texts(L) { var set = [].concat(L);
+  return ents.filter(function (e) { return set.indexOf(e.L) >= 0 && e.kind === 'text'; }); }
+function ringsOf(L) { var set = [].concat(L);
+  return ents.filter(function (e) { return set.indexOf(e.L) >= 0 && e.kind === 'circle'; })
+    .map(function (e) { return e.d.r; }).sort(function (a, b) { return a - b; }); }
+var Rc_ = D / 2;
+
+// --- limb: 1 / 5 / 10 degree rings standing on Capricorn
+var limbB = [Rc_, Rc_ + 0.022 * Rc_, Rc_ + 0.044 * Rc_, G.Rl];
+var limbRings = curves('Print_Limb').map(function (e) { return e.d.r; }).sort(function (a, b) { return a - b; });
+check('print limb has four rings, innermost on Capricorn',
+      limbRings.length === 4 && limbRings.every(function (r, i) { return Math.abs(r - limbB[i]) < 1e-9; }),
+      limbRings.map(function (r) { return (r / Rc_).toFixed(3); }).join(', ') + ' Rc');
+var limbCounts = [0, 1, 2].map(function (i) { return trackAngles('Print_Limb', 0, 0, limbB[i], limbB[i + 1]).length; });
+check('print limb tracks hold 360 / 72 / 36 divisions', limbCounts.join(',') === '360,72,36', limbCounts.join(','));
+var limbAll = bandLinesOf('Print_Limb', 0, 0).length;
+var inTracks = [0, 1, 2].reduce(function (a, i) { return a + trackLines('Print_Limb', 0, 0, limbB[i], limbB[i + 1]).length; }, 0);
+check('no print limb division strays off its ring', inTracks === limbAll, (limbAll - inTracks) + ' stray');
+check('print limb divisions are radial', bandLinesOf('Print_Limb', 0, 0).every(function (l) {
+  return Math.abs(((l.a1 - l.a2 + Math.PI * 3) % (2 * Math.PI)) - Math.PI) < 1e-9; }));
+check('print limb numbered every 10 deg', texts('Print_Limb').length === 36);
+// each numbered division is broken, leaving 1.3 text heights for the numeral
+var tenLines = trackLines('Print_Limb', 0, 0, limbB[2], limbB[3]);
+var gapWant = 1.3 * 0.018 * Rc_, gapErr = 0, mid = (limbB[2] + limbB[3]) / 2;
+check('every tenth division broken in two', tenLines.length === 72, tenLines.length + ' segments for 36 divisions');
+tenLines.forEach(function (l) {
+  var g = (l.lo > mid) ? l.lo - (mid + gapWant / 2) : (mid - gapWant / 2) - l.hi;
+  gapErr = Math.max(gapErr, Math.abs(g));
+});
+check('the break is centred on the numeral', gapErr < 1e-9, 'max err ' + gapErr.toExponential(2));
+var limbWork = ents.filter(function (e) { return e.L === 'Limb' && e.kind === 'line'; })
+  .map(function (e) { return norm(Math.atan2(e.d.a.y, e.d.a.x)); }).sort(function (a, b) { return a - b; });
+var limbPrint = trackAngles('Print_Limb', 0, 0, limbB[0], limbB[1]);
+check('print limb degrees on the same rays as the working limb',
+      limbPrint.length === limbWork.length && limbPrint.every(function (a, i) { return Math.abs(a - limbWork[i]) < 1e-9; }));
+
+// --- ecliptic: calendar outwards, zodiac and Moon inwards from the line
+// everything stacks inwards from the ecliptic line: zodiac, Moon, calendar
+var eIn = [G.Re, G.Re - 0.018 * Rc_, G.Re - 0.044 * Rc_, G.Re - 0.074 * Rc_, G.Re - 0.096 * Rc_,
+           G.Re - 0.118 * Rc_, G.Re - 0.146 * Rc_];
+var ECL = ['Print_Calendar', 'Print_Zodiac', 'Print_Moon'];
+// each scale owns the rings it adds; the shared ecliptic line stays on Ecliptic
+function sameRadii(got, want) {
+  return got.length === want.length && got.every(function (r, i) { return Math.abs(r - want[i]) < 1e-9; });
+}
+check('print calendar owns two rings, inside the Moon',
+      sameRadii(ringsOf('Print_Calendar'), [eIn[6], eIn[5]]) && eIn[5] < eIn[4],
+      ringsOf('Print_Calendar').map(function (r) { return (r / Rc_).toFixed(3); }).join(', '));
+check('print zodiac owns its three rings inside the line',
+      sameRadii(ringsOf('Print_Zodiac'), [eIn[3], eIn[2], eIn[1]]),
+      ringsOf('Print_Zodiac').map(function (r) { return (r / Rc_).toFixed(3); }).join(', '));
+check('print moon owns one ring', sameRadii(ringsOf('Print_Moon'), [eIn[4]]));
+check('the ecliptic line is drawn once, on the Ecliptic layer',
+      ringsOf('Ecliptic').length === 1 && Math.abs(ringsOf('Ecliptic')[0] - G.Re) < 1e-9 &&
+      !ringsOf(ECL).some(function (r) { return Math.abs(r - G.Re) < 1e-9; }));
+var eTracks = [['Print_Calendar', eIn[5], eIn[4], 365, 'calendar days'],
+               ['Print_Calendar', eIn[6], eIn[5], 12, 'month divisions'],
+               ['Print_Zodiac', eIn[1], eIn[0], 360, 'zodiac degrees'],
+               ['Print_Zodiac', eIn[2], eIn[1], 72, 'five-degree marks'],
+               ['Print_Zodiac', eIn[3], eIn[2], 12, 'sign divisions'],
+               ['Print_Moon', eIn[4], eIn[3], 30, 'lunar days']];
+var perLayer = {};
+eTracks.forEach(function (t) {
+  var n = trackAngles(t[0], 0, G.eclCy, t[1], t[2]).length;
+  perLayer[t[0]] = (perLayer[t[0]] || 0) + trackLines(t[0], 0, G.eclCy, t[1], t[2]).length;
+  check(t[0] + ' ' + t[4] + ': ' + t[3], n === t[3], n + ' found');
+});
+Object.keys(perLayer).forEach(function (L) {
+  check('no ' + L + ' division strays off its ring',
+        perLayer[L] === bandLinesOf(L, 0, G.eclCy).length,
+        (bandLinesOf(L, 0, G.eclCy).length - perLayer[L]) + ' stray');
+});
+check('the calendar is two rings only: days and month names',
+      texts('Print_Calendar').length === 12 && texts('Print_Zodiac').length === 36 &&
+      texts('Print_Moon').length === 0,
+      texts('Print_Calendar').length + ' / ' + texts('Print_Zodiac').length + ' / ' + texts('Print_Moon').length);
+var zWork = ents.filter(function (e) { return e.L === 'Ecliptic_Zodiac' && e.kind === 'line'; })
+  .map(function (e) { return norm(Math.atan2(e.d.a.y - G.eclCy, e.d.a.x)); }).sort(function (a, b) { return a - b; });
+var zPrint = trackAngles('Print_Zodiac', 0, G.eclCy, eIn[1], eIn[0]);
+check('print zodiac degrees on the same rays as the working zodiac',
+      zPrint.length === zWork.length && zPrint.every(function (a, i) { return Math.abs(a - zWork[i]) < 1e-9; }));
+
+// --- index: the same thing with the fiducial line in place of the base ring
+var ixl = ents.filter(function (e) { return e.L === 'Print_Index' && e.kind === 'line'; });
+var work = ents.filter(function (e) { return e.L === 'Index' && e.kind === 'line'; });
+var base = work.filter(function (e) { return Math.hypot(e.d.b.x - e.d.a.x, e.d.b.y - e.d.a.y) > 0.5 * G.Rl; })[0];
+var ia_ = Math.atan2(base.d.b.y - base.d.a.y, base.d.b.x - base.d.a.x);
+var across = function (p) { return -p.x * Math.sin(ia_) + p.y * Math.cos(ia_); };
+var along = function (p) { return p.x * Math.cos(ia_) + p.y * Math.sin(ia_); };
+var vb = [0, 0.022 * Rc_, 0.044 * Rc_, 0.080 * Rc_];
+var rails = ixl.filter(function (e) { return Math.abs(across(e.d.a) - across(e.d.b)) < 1e-9; });
+var divs = ixl.filter(function (e) { return Math.abs(along(e.d.a) - along(e.d.b)) < 1e-9; });
+check('print index has four lines along the rule', rails.length === 4, rails.length + ' rails');
+check('rails at 0 / 0.022 / 0.044 / 0.080 Rc across', rails.map(function (e) { return across(e.d.a); })
+  .sort(function (a, b) { return a - b; }).every(function (v, i) { return Math.abs(v - vb[i]) < 1e-9; }));
+check('every division stands on the fiducial and ends on a rail',
+      divs.length === ixl.length - 4 && divs.every(function (e) {
+        var lo = Math.min(across(e.d.a), across(e.d.b)), hi = Math.max(across(e.d.a), across(e.d.b));
+        return Math.abs(lo) < 1e-9 && vb.slice(1).some(function (v) { return Math.abs(hi - v) < 1e-9; });
+      }), divs.length + ' divisions');
+check('print index declination scale matches the working one', divs.length === work.length - 1,
+      divs.length + ' vs ' + (work.length - 1));
+var pOver = 0, deepest = 0;
+ents.filter(function (e) { return ECL.indexOf(e.L) >= 0; }).forEach(function (e) {
+  var ps = e.kind === 'text' ? [[e.d.pos.x, e.d.pos.y]]
+         : e.kind === 'circle' ? [] : [[e.d.a.x, e.d.a.y], [e.d.b.x, e.d.b.y]];
+  if (e.kind === 'circle') { deepest = Math.max(deepest, G.Re - e.d.r); }
+  ps.forEach(function (q) {
+    pOver = Math.max(pOver, Math.hypot(q[0], q[1]) - Rc_);
+    deepest = Math.max(deepest, G.Re - Math.hypot(q[0], q[1] - G.eclCy));
+  });
+});
+check('the whole print band stays inside Capricorn', pOver < 1e-9,
+      'max overshoot ' + (pOver / Rc_).toFixed(4) + ' Rc');
+console.log('  print band reaches ' + (deepest / Rc_ * 100).toFixed(1) +
+            '% of Rc inside the ecliptic line, nothing outside it');
+console.log('  print layers: ' + ECL.concat(['Print_Limb', 'Print_Index']).map(function (L) {
+  return L + ' ' + ents.filter(function (e) { return e.L === L; }).length; }).join(', ') + ' entities');
+
 // 8. counts
 function n(L, k) { return ents.filter(function (e) { return e.L === L && (!k || e.kind === k); }).length; }
 console.log('  zodiac ticks (lines): ' + n('Ecliptic_Zodiac', 'line') + ', calendar lines: ' + n('Ecliptic_Calendar', 'line') + ', limb lines: ' + n('Limb', 'line'));
@@ -436,7 +581,7 @@ console.log(fails ? fails + ' FAILED' : 'ALL PASSED');
 
 // SVG preview
 if (out) {
-  var col = { Equator: '#00a000', Tropic_Cancer: '#dc7800', Tropic_Capricorn: '#1e5ae6', Horizon: '#dc0000', Almucantars: '#0096be', Twilight: '#4646aa', Unequal_Hours: '#007864', Azimuth: '#963cc8', Analemma: '#1e1e1e', Ecliptic: '#c8a000', Ecliptic_Zodiac: '#be6414', Ecliptic_Calendar: '#787814', Ecliptic_Moon: '#6478a0', Rete: '#96143c', Index: '#e6288c', Limb: '#555' };
+  var col = { Equator: '#00a000', Tropic_Cancer: '#dc7800', Tropic_Capricorn: '#1e5ae6', Horizon: '#dc0000', Almucantars: '#0096be', Twilight: '#4646aa', Unequal_Hours: '#007864', Azimuth: '#963cc8', Analemma: '#1e1e1e', Ecliptic: '#c8a000', Ecliptic_Zodiac: '#be6414', Ecliptic_Calendar: '#787814', Ecliptic_Moon: '#6478a0', Rete: '#96143c', Index: '#e6288c', Limb: '#555', Print_Calendar: '#19643c', Print_Zodiac: '#0a5f73', Print_Moon: '#4b5a96', Print_Limb: '#323232', Print_Index: '#8c2828' };
   var S = G.Rl * 1.08, sw = D / 700, svg = [];
   svg.push('<svg xmlns="http://www.w3.org/2000/svg" viewBox="' + -S + ' ' + -S + ' ' + 2 * S + ' ' + 2 * S + '" width="1400" height="1400"><rect x="' + -S + '" y="' + -S + '" width="' + 2 * S + '" height="' + 2 * S + '" fill="white"/><g transform="scale(1,-1)" fill="none" stroke-width="' + sw + '">');
   ents.forEach(function (e) {
