@@ -26,11 +26,11 @@
  * manner - concentric rings, one resolution per ring, the finest against the
  * scale's base line:
  *
- *     Print_Zodiac, Print_Moon and Print_Calendar (Latin months; rings inwards
- *     from the ecliptic line, in that order; the line itself stays on the
- *     Ecliptic layer, shared by both layouts), Print_Limb (1 / 5 / 10 degree
- *     rings on Capricorn), Print_Index (the same as parallel bands beside
- *     the fiducial line)
+ *     Print_Zodiac (the rete's only scale, rings inwards from the ecliptic
+ *     line, with the Aries 0 mark), Print_Limb (1 / 5 / 10 degree rings on
+ *     Capricorn), Print_Moon, Print_Longitude and Print_Calendar (the mater's
+ *     band outside the limb, graduated in ecliptic longitude about the pole),
+ *     Print_Index (the same as parallel bands beside the fiducial line)
  *
  * Run it in QCAD with an open drawing: Misc > Development > Run Script...
  * (or File > Open Script / "Run Script"), then pick this file.
@@ -135,6 +135,7 @@ include("scripts/EAction.js");
         ["Index",             [230,  40, 140]],
         ["Limb",              [ 90,  90,  90]],
         ["Print_Calendar",    [ 25, 100,  60]],
+        ["Print_Longitude",   [ 55,  75, 105]],
         ["Print_Zodiac",      [ 10,  95, 115]],
         ["Print_Moon",        [ 75,  90, 150]],
         ["Print_Limb",        [ 50,  50,  50]],
@@ -211,6 +212,8 @@ include("scripts/EAction.js");
     var calOut = 0.075 * Rc;                         // calendar reach outside the ecliptic
     var limbW = 0.080 * Rc;                          // depth of the limb's 360 deg scale
     var Rl = Rc + limbW;                             // outer end of the limb scale
+    var outerW = 0.140 * Rc;                         // the mater's band outside the limb
+    var Rout = Rl + outerW;                          // outermost circle of the drawing
 
     // signed polar distance along the meridian (positive towards +Y) -> Y
     function yOnMeridian(sDeg) { return Req * Math.tan(rad(sDeg) / 2); }
@@ -715,24 +718,14 @@ include("scripts/EAction.js");
     }
 
     // =======================================================================
-    // 4d. PRINT_CALENDAR / _ZODIAC / _MOON: the same scales as rings
+    // 4d. PRINT_ZODIAC: the rete's only scale, as rings
     // =======================================================================
-    // All of it stacks inwards from the ecliptic line: the zodiac first
-    // (1 deg, 5 deg with numbers, signs), then the Moon's 29 1/2 days, then
-    // the calendar (days, months).  Finest next to the line, coarsest
-    // furthest from it.
-    (function printEcliptic() {
-        var calDay = [], monDiv = [], monLab = [];
-        for (var mm = 0; mm < 12; mm++) {
-            for (var dd = 1; dd <= MONTH_DAYS[mm]; dd++) {
-                var ad = eclRay(sunLon[mm][dd - 1]).ang;
-                calDay.push(ad);
-                if (dd === 1) { monDiv.push(ad); }
-            }
-            var a0 = sunLon[mm][0], a1 = sunLon[(mm + 1) % 12][0];
-            monLab.push({ a: eclRay(a0 + ((a1 - a0 + 360) % 360) / 2).ang, s: MONTHS_LA[mm] });
-        }
-        var z1 = [], z5 = [], z5Lab = [], zSign = [], zSignLab = [], moonA = [];
+    // The rete has to leave the tympanum visible, so it carries the zodiac
+    // alone - 1 deg, 5 deg with numbers, signs - 0.074 Rc deep inwards from the
+    // ecliptic line, hiding a tenth of the plate instead of a fifth.  The
+    // calendar and the Moon sit outside the limb instead (section 5c).
+    (function printZodiac() {
+        var z1 = [], z5 = [], z5Lab = [], zSign = [], zSignLab = [];
         for (var lo = 0; lo < 360; lo++) {
             var az = eclRay(lo).ang;
             z1.push(az);
@@ -741,24 +734,19 @@ include("scripts/EAction.js");
             if (lo % 30 === 0) { zSign.push(az); }
         }
         for (var sg = 0; sg < 12; sg++) { zSignLab.push({ a: eclRay(sg * 30 + 15).ang, s: signs[sg] }); }
-        for (var mk = 0; mk < cfg.synodicMonth; mk++) { moonA.push(eclRay(mk * moonStep).ang); }
-
-        // Everything stacks inwards from the ecliptic line - zodiac, Moon, then
-        // the calendar - so no part of the band crosses the plate edge where
-        // the ecliptic touches Capricorn.  Each scale owns the rings it adds;
-        // the line itself is drawn once, on the Ecliptic layer the two layouts
-        // share.  The calendar is two rings only: the days and their months.
         ringBand("Print_Zodiac", 0, eclCy,
                  [Re, Re - 0.018 * Rc, Re - 0.044 * Rc, Re - 0.074 * Rc],
                  [{ angles: z1 },
                   { angles: z5, labels: z5Lab, textH: 0.013 * Rc },
                   { angles: zSign, labels: zSignLab, textH: 0.017 * Rc }], true);
-        ringBand("Print_Moon", 0, eclCy, [Re - 0.074 * Rc, Re - 0.096 * Rc],
-                 [{ angles: moonA }], true);
-        ringBand("Print_Calendar", 0, eclCy,
-                 [Re - 0.096 * Rc, Re - 0.118 * Rc, Re - 0.146 * Rc],
-                 [{ angles: calDay },
-                  { angles: monDiv, labels: monLab, textH: 0.017 * Rc }], true);
+
+        // Start of the zodiac: Aries 0, where the ecliptic crosses the equator.
+        // Every ring already has a division on this ray, so only the stub
+        // outside the ecliptic line is added - the one mark that crosses the
+        // line, and the origin every reading is counted from.
+        var aries = eclRay(0);
+        radial("Print_Zodiac", aries, Re, Re + 0.030 * Rc);
+        ringText("Print_Zodiac", aries, Re + 0.046 * Rc, 0.020 * Rc, 0);
     })();
 
     // =======================================================================
@@ -814,6 +802,51 @@ include("scripts/EAction.js");
                  [{ angles: deg1 },
                   { angles: deg5 },
                   { angles: deg10, labels: lab, textH: 0.018 * Rc }], false);
+    })();
+
+    // =======================================================================
+    // 5c. THE MATER'S OUTER BAND: calendar, longitude and Moon
+    // =======================================================================
+    // Outside the limb, graduated in ecliptic LONGITUDE measured about the pole
+    // (0 at +X, increasing counter-clockwise, as on the rete): the Moon's
+    // 29 1/2 days, the signs, the degrees within them, the days of the year and
+    // their months.  A date is read off as a sign and a degree and then found
+    // on the rete's zodiac, counting from the Aries 0 mark.  The transfer is by
+    // value and not by bearing: the longitude of a point and its right
+    // ascension differ by up to 2.47 deg, which is 2.5 days of solar motion.
+    (function printOuterBand() {
+        var moonO = [], signO = [], signLabO = [], d5 = [], d5Lab = [], d1 = [];
+        for (var lo = 0; lo < 360; lo++) {
+            d1.push(rad(lo));
+            if (lo % 5 === 0) { d5.push(rad(lo)); }
+            if (lo % 10 === 0 && lo % 30 !== 0) { d5Lab.push({ a: rad(lo), s: lo % 30 }); }
+            if (lo % 30 === 0) { signO.push(rad(lo)); }
+        }
+        for (var sg = 0; sg < 12; sg++) { signLabO.push({ a: rad(sg * 30 + 15), s: signs[sg] }); }
+        for (var mk = 0; mk < cfg.synodicMonth; mk++) { moonO.push(rad(mk * moonStep)); }
+
+        var dayO = [], monDivO = [], monLabO = [];
+        for (var mm = 0; mm < 12; mm++) {
+            for (var dd = 1; dd <= MONTH_DAYS[mm]; dd++) {
+                dayO.push(rad(sunLon[mm][dd - 1]));
+                if (dd === 1) { monDivO.push(rad(sunLon[mm][dd - 1])); }
+            }
+            var l0 = sunLon[mm][0], l1 = sunLon[(mm + 1) % 12][0];
+            monLabO.push({ a: rad(l0 + ((l1 - l0 + 360) % 360) / 2), s: MONTHS_LA[mm] });
+        }
+
+        // each scale owns the rings it adds; the limb already drew Rl
+        ringBand("Print_Moon", 0, 0, [Rl, Rl + 0.022 * Rc],
+                 [{ angles: moonO }], true);
+        ringBand("Print_Longitude", 0, 0,
+                 [Rl + 0.022 * Rc, Rl + 0.052 * Rc, Rl + 0.078 * Rc, Rl + 0.094 * Rc],
+                 [{ angles: signO, labels: signLabO, textH: 0.017 * Rc },
+                  { angles: d5, labels: d5Lab, textH: 0.013 * Rc },
+                  { angles: d1 }], true);
+        ringBand("Print_Calendar", 0, 0,
+                 [Rl + 0.094 * Rc, Rl + 0.112 * Rc, Rout],
+                 [{ angles: dayO },
+                  { angles: monDivO, labels: monLabO, textH: 0.017 * Rc }], true);
     })();
 
     // =======================================================================
@@ -906,7 +939,7 @@ include("scripts/EAction.js");
         __ASTROLABE_TEST__.geom = {
             Req: Req, Rcan: Rcan, Rc: Rc, Rl: Rl, Re: Re, calOut: calOut, zodIn: zodIn, limbW: limbW,
             eclCy: eclCy, phi: phi, eps: eps, year: cfg.calendarYear,
-            synodicMonth: cfg.synodicMonth, moonTop: moonTop,
+            synodicMonth: cfg.synodicMonth, moonTop: moonTop, Rout: Rout,
             analemmaHours: cfg.analemmaHours,
             plateFromEcliptic: plateFromEcliptic, sunLongitude: sunLongitude, julianDay: julianDay
         };

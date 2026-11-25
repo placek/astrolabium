@@ -488,45 +488,96 @@ var limbPrint = trackAngles('Print_Limb', 0, 0, limbB[0], limbB[1]);
 check('print limb degrees on the same rays as the working limb',
       limbPrint.length === limbWork.length && limbPrint.every(function (a, i) { return Math.abs(a - limbWork[i]) < 1e-9; }));
 
-// --- ecliptic: calendar outwards, zodiac and Moon inwards from the line
-// everything stacks inwards from the ecliptic line: zodiac, Moon, calendar
-var eIn = [G.Re, G.Re - 0.018 * Rc_, G.Re - 0.044 * Rc_, G.Re - 0.074 * Rc_, G.Re - 0.096 * Rc_,
-           G.Re - 0.118 * Rc_, G.Re - 0.146 * Rc_];
-var ECL = ['Print_Calendar', 'Print_Zodiac', 'Print_Moon'];
-// each scale owns the rings it adds; the shared ecliptic line stays on Ecliptic
+// --- rete: the zodiac alone, rings inwards from the ecliptic line
+var eIn = [G.Re, G.Re - 0.018 * Rc_, G.Re - 0.044 * Rc_, G.Re - 0.074 * Rc_];
+var ECL = ['Print_Calendar', 'Print_Zodiac', 'Print_Moon', 'Print_Longitude'];
 function sameRadii(got, want) {
   return got.length === want.length && got.every(function (r, i) { return Math.abs(r - want[i]) < 1e-9; });
 }
-check('print calendar owns two rings, inside the Moon',
-      sameRadii(ringsOf('Print_Calendar'), [eIn[6], eIn[5]]) && eIn[5] < eIn[4],
-      ringsOf('Print_Calendar').map(function (r) { return (r / Rc_).toFixed(3); }).join(', '));
-check('print zodiac owns its three rings inside the line',
+check('the rete band is the zodiac alone, three rings deep',
       sameRadii(ringsOf('Print_Zodiac'), [eIn[3], eIn[2], eIn[1]]),
       ringsOf('Print_Zodiac').map(function (r) { return (r / Rc_).toFixed(3); }).join(', '));
-check('print moon owns one ring', sameRadii(ringsOf('Print_Moon'), [eIn[4]]));
 check('the ecliptic line is drawn once, on the Ecliptic layer',
       ringsOf('Ecliptic').length === 1 && Math.abs(ringsOf('Ecliptic')[0] - G.Re) < 1e-9 &&
       !ringsOf(ECL).some(function (r) { return Math.abs(r - G.Re) < 1e-9; }));
-var eTracks = [['Print_Calendar', eIn[5], eIn[4], 365, 'calendar days'],
-               ['Print_Calendar', eIn[6], eIn[5], 12, 'month divisions'],
-               ['Print_Zodiac', eIn[1], eIn[0], 360, 'zodiac degrees'],
-               ['Print_Zodiac', eIn[2], eIn[1], 72, 'five-degree marks'],
-               ['Print_Zodiac', eIn[3], eIn[2], 12, 'sign divisions'],
-               ['Print_Moon', eIn[4], eIn[3], 30, 'lunar days']];
-var perLayer = {};
-eTracks.forEach(function (t) {
-  var n = trackAngles(t[0], 0, G.eclCy, t[1], t[2]).length;
-  perLayer[t[0]] = (perLayer[t[0]] || 0) + trackLines(t[0], 0, G.eclCy, t[1], t[2]).length;
-  check(t[0] + ' ' + t[4] + ': ' + t[3], n === t[3], n + ' found');
+[[eIn[1], eIn[0], 360, 'zodiac degrees'], [eIn[2], eIn[1], 72, 'five-degree marks'],
+ [eIn[3], eIn[2], 12, 'sign divisions']].forEach(function (t) {
+  var n = trackAngles('Print_Zodiac', 0, G.eclCy, t[0], t[1]).length;
+  check('Print_Zodiac ' + t[3] + ': ' + t[2], n === t[2], n + ' found');
 });
-Object.keys(perLayer).forEach(function (L) {
-  check('no ' + L + ' division strays off its ring',
-        perLayer[L] === bandLinesOf(L, 0, G.eclCy).length,
-        (bandLinesOf(L, 0, G.eclCy).length - perLayer[L]) + ' stray');
+// the start of the zodiac: one stub outside the line, on the Aries 0 ray
+var zLines = bandLinesOf('Print_Zodiac', 0, G.eclCy);
+var outward = zLines.filter(function (l) { return l.hi > G.Re + 1e-9; });
+var ariesP = plateFromLon(0), ariesA = norm(Math.atan2(ariesP.y - G.eclCy, ariesP.x));
+check('one mark crosses the ecliptic line, at Aries 0',
+      outward.length === 1 && Math.abs(outward[0].lo - G.Re) < 1e-9 &&
+      Math.abs(outward[0].hi - (G.Re + 0.030 * Rc_)) < 1e-9 &&
+      Math.abs(norm(outward[0].a1) - ariesA) < 1e-9, outward.length + ' outward');
+var zeroLab = texts('Print_Zodiac').filter(function (e) { return e.d.text === '0'; });
+check('the start of the zodiac is labelled', zeroLab.length === 1 &&
+      Math.abs(Math.hypot(zeroLab[0].d.pos.x, zeroLab[0].d.pos.y - G.eclCy) - (G.Re + 0.046 * Rc_)) < 1e-9);
+check('nothing else of the rete band leaves the ecliptic line',
+      zLines.length === 360 + 72 + 24 + 12 + 1, zLines.length + ' lines');
+var zWork = ents.filter(function (e) { return e.L === 'Ecliptic_Zodiac' && e.kind === 'line'; })
+  .map(function (e) { return norm(Math.atan2(e.d.a.y - G.eclCy, e.d.a.x)); }).sort(function (a, b) { return a - b; });
+var zPrint = trackAngles('Print_Zodiac', 0, G.eclCy, eIn[1], eIn[0]);
+check('print zodiac degrees on the same rays as the working zodiac',
+      zPrint.length === zWork.length && zPrint.every(function (a, i) { return Math.abs(a - zWork[i]) < 1e-9; }));
+
+// --- the mater's band outside the limb, graduated in longitude about the pole
+var oB = [G.Rl, G.Rl + 0.022 * Rc_, G.Rl + 0.052 * Rc_, G.Rl + 0.078 * Rc_,
+          G.Rl + 0.094 * Rc_, G.Rl + 0.112 * Rc_, G.Rout];
+check('the outer band owns its rings: Moon 1, longitude 3, calendar 2',
+      sameRadii(ringsOf('Print_Moon'), [oB[1]]) &&
+      sameRadii(ringsOf('Print_Longitude'), [oB[2], oB[3], oB[4]]) &&
+      sameRadii(ringsOf('Print_Calendar'), [oB[5], oB[6]]),
+      [ringsOf('Print_Moon'), ringsOf('Print_Longitude'), ringsOf('Print_Calendar')]
+        .map(function (a) { return a.map(function (r) { return (r / Rc_).toFixed(3); }).join('+'); }).join(' | '));
+var oTracks = [['Print_Moon', oB[0], oB[1], 30, 'lunar days'],
+               ['Print_Longitude', oB[1], oB[2], 12, 'sign divisions'],
+               ['Print_Longitude', oB[2], oB[3], 72, 'five-degree marks'],
+               ['Print_Longitude', oB[3], oB[4], 360, 'single degrees'],
+               ['Print_Calendar', oB[4], oB[5], 365, 'calendar days'],
+               ['Print_Calendar', oB[5], oB[6], 12, 'month divisions']];
+var oCount = {};
+oTracks.forEach(function (t) {
+  var n = trackAngles(t[0], 0, 0, t[1], t[2]).length;
+  oCount[t[0]] = (oCount[t[0]] || 0) + trackLines(t[0], 0, 0, t[1], t[2]).length;
+  check('outer ' + t[0].replace('Print_', '') + ' ' + t[4] + ': ' + t[3], n === t[3], n + ' found');
+});
+Object.keys(oCount).forEach(function (L) {
+  check('no outer ' + L.replace('Print_', '') + ' division strays off its ring',
+        oCount[L] === bandLinesOf(L, 0, 0).length,
+        (bandLinesOf(L, 0, 0).length - oCount[L]) + ' stray');
+});
+// the degree ring is UNIFORM about the pole - unlike the rete's zodiac
+var uni = trackAngles('Print_Longitude', 0, 0, oB[3], oB[4]), uniErr = 0;
+uni.forEach(function (a, i) { uniErr = Math.max(uniErr, Math.abs(a - rad(i))); });
+check('outer degrees are equal angles about the pole', uniErr < 1e-9,
+      'max err ' + deg(uniErr).toExponential(2) + ' deg');
+// and the days sit at the Sun's longitude for their date
+var dayA = trackAngles('Print_Calendar', 0, 0, oB[4], oB[5]), want = [], dayErr = 0;
+for (var m2 = 1; m2 <= 12; m2++) {
+  for (var d2 = 1; d2 <= MD[m2 - 1]; d2++) {
+    want.push(norm(rad(G.sunLongitude(G.julianDay(G.year, m2, d2) + 0.5))));
+  }
+}
+want.sort(function (a, b) { return a - b; });
+dayA.forEach(function (a, i) { dayErr = Math.max(dayErr, Math.abs(a - want[i])); });
+check('outer days at the Sun\'s longitude for their date', dayErr < 1e-9,
+      'max err ' + deg(dayErr).toExponential(2) + ' deg');
+// the whole outer band lies outside the limb and inside Rout
+var oAll = ['Print_Moon', 'Print_Longitude', 'Print_Calendar'];
+var oLo = 1e9, oHi = 0;
+ents.filter(function (e) { return oAll.indexOf(e.L) >= 0; }).forEach(function (e) {
+  var ps = e.kind === 'text' ? [[e.d.pos.x, e.d.pos.y]]
+         : e.kind === 'circle' ? [] : [[e.d.a.x, e.d.a.y], [e.d.b.x, e.d.b.y]];
+  if (e.kind === 'circle') { oLo = Math.min(oLo, e.d.r); oHi = Math.max(oHi, e.d.r); }
+  ps.forEach(function (q) { var r = Math.hypot(q[0], q[1]); oLo = Math.min(oLo, r); oHi = Math.max(oHi, r); });
 });
 var LA = ['Ianuarius', 'Februarius', 'Martius', 'Aprilis', 'Maius', 'Iunius',
           'Iulius', 'Augustus', 'September', 'October', 'November', 'December'];
-check('print calendar names the months in Latin',
+check('the outer calendar names its months in Latin',
       texts('Print_Calendar').map(function (e) { return e.d.text; }).sort().join(',') === LA.slice().sort().join(','),
       texts('Print_Calendar').map(function (e) { return e.d.text; }).join(' '));
 check('the working calendar keeps the English names',
@@ -534,15 +585,8 @@ check('the working calendar keeps the English names',
         .map(function (e) { return e.d.text; }).sort().join(',') ===
       ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August',
        'September', 'October', 'November', 'December'].sort().join(','));
-check('the calendar is two rings only: days and month names',
-      texts('Print_Calendar').length === 12 && texts('Print_Zodiac').length === 36 &&
-      texts('Print_Moon').length === 0,
-      texts('Print_Calendar').length + ' / ' + texts('Print_Zodiac').length + ' / ' + texts('Print_Moon').length);
-var zWork = ents.filter(function (e) { return e.L === 'Ecliptic_Zodiac' && e.kind === 'line'; })
-  .map(function (e) { return norm(Math.atan2(e.d.a.y - G.eclCy, e.d.a.x)); }).sort(function (a, b) { return a - b; });
-var zPrint = trackAngles('Print_Zodiac', 0, G.eclCy, eIn[1], eIn[0]);
-check('print zodiac degrees on the same rays as the working zodiac',
-      zPrint.length === zWork.length && zPrint.every(function (a, i) { return Math.abs(a - zWork[i]) < 1e-9; }));
+check('the outer band sits between the limb and Rout', oLo > G.Rl - 1e-9 && oHi < G.Rout + 1e-9,
+      (oLo / Rc_).toFixed(3) + ' .. ' + (oHi / Rc_).toFixed(3) + ' Rc');
 
 // --- index: the same thing with the fiducial line in place of the base ring
 var ixl = ents.filter(function (e) { return e.L === 'Print_Index' && e.kind === 'line'; });
@@ -564,8 +608,8 @@ check('every division stands on the fiducial and ends on a rail',
       }), divs.length + ' divisions');
 check('print index declination scale matches the working one', divs.length === work.length - 1,
       divs.length + ' vs ' + (work.length - 1));
-var pOver = 0, deepest = 0;
-ents.filter(function (e) { return ECL.indexOf(e.L) >= 0; }).forEach(function (e) {
+var deepest = 0, pOver = 0;
+ents.filter(function (e) { return e.L === 'Print_Zodiac'; }).forEach(function (e) {
   var ps = e.kind === 'text' ? [[e.d.pos.x, e.d.pos.y]]
          : e.kind === 'circle' ? [] : [[e.d.a.x, e.d.a.y], [e.d.b.x, e.d.b.y]];
   if (e.kind === 'circle') { deepest = Math.max(deepest, G.Re - e.d.r); }
@@ -574,8 +618,11 @@ ents.filter(function (e) { return ECL.indexOf(e.L) >= 0; }).forEach(function (e)
     deepest = Math.max(deepest, G.Re - Math.hypot(q[0], q[1] - G.eclCy));
   });
 });
-check('the whole print band stays inside Capricorn', pOver < 1e-9,
+check('the rete band stays inside Capricorn', pOver < 1e-9,
       'max overshoot ' + (pOver / Rc_).toFixed(4) + ' Rc');
+var hides = (deepest * (2 * G.Re - deepest)) / (Rc_ * Rc_) * 100;
+console.log('  rete band ' + (deepest / Rc_).toFixed(3) + ' Rc deep, covering ' +
+            hides.toFixed(1) + '% of the plate');
 var fonts = {};
 ents.filter(function (e) { return e.kind === 'text'; }).forEach(function (e) {
   var k = (e.L.indexOf('Print_') === 0 ? 'print' : 'working') + ':' + e.d.font;
@@ -615,7 +662,7 @@ console.log(fails ? fails + ' FAILED' : 'ALL PASSED');
 // SVG preview
 if (out) {
   var col = { Equator: '#00a000', Tropic_Cancer: '#dc7800', Tropic_Capricorn: '#1e5ae6', Horizon: '#dc0000', Almucantars: '#0096be', Twilight: '#4646aa', Unequal_Hours: '#007864', Azimuth: '#963cc8', Analemma: '#1e1e1e', Ecliptic: '#c8a000', Ecliptic_Zodiac: '#be6414', Ecliptic_Calendar: '#787814', Ecliptic_Moon: '#6478a0', Rete: '#96143c', Index: '#e6288c', Limb: '#555', Print_Calendar: '#19643c', Print_Zodiac: '#0a5f73', Print_Moon: '#4b5a96', Print_Limb: '#323232', Print_Index: '#8c2828' };
-  var S = G.Rl * 1.08, sw = D / 700, svg = [];
+  var S = G.Rout * 1.04, sw = D / 700, svg = [];
   svg.push('<svg xmlns="http://www.w3.org/2000/svg" viewBox="' + -S + ' ' + -S + ' ' + 2 * S + ' ' + 2 * S + '" width="1400" height="1400"><rect x="' + -S + '" y="' + -S + '" width="' + 2 * S + '" height="' + 2 * S + '" fill="white"/><g transform="scale(1,-1)" fill="none" stroke-width="' + sw + '">');
   ents.forEach(function (e) {
     var c = col[e.L] || '#000', d = e.d;
