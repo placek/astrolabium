@@ -1,69 +1,15 @@
 // Runs astrolabe.js against a minimal mock of the QCAD API, verifies the
 // geometry independently and writes an SVG preview.
 // usage: node test/run_mock.js <diameter> <latitude> [out.svg]
-var fs = require('fs'), vm = require('vm'), path = require('path');
+var path = require('path');
+var mock = require('./qcad_mock.js');
 var D = parseFloat(process.argv[2] || 200), LAT = parseFloat(process.argv[3] || 50);
 var out = process.argv[4] || null;
+var fs = require('fs');
 
-var ents = [], layers = {}, layerObjs = [], nextId = 1;
-function V(x, y) { this.x = x; this.y = y; }
-function Ent(kind, d) { this.kind = kind; this.d = d; this.layer = null; this.lw = undefined; }
-Ent.prototype.setLayerId = function (id) { this.layer = id; };
-Ent.prototype.setLineweight = function (w) { this.lw = w; };
-var g = {
-  __ASTROLABE_TEST__: {},
-  include: function () {},
-  qDebug: function (s) { console.log(s); },
-  RVector: V,
-  RColor: function (r, gg, b) { this.c = [r, gg, b]; },
-  RLineweight: { Weight000: 0, Weight025: 25, WeightByLayer: -1 },
-  RS: { VAlignMiddle: 1, HAlignCenter: 1, LeftToRight: 1, Exact: 1 },
-  RLayer: function (doc, name) { this.name = name; this.lineweight = arguments[6]; },
-  RLineData: function (a, b) { this.a = a; this.b = b; },
-  RCircleData: function (c, r) { this.c = c; this.r = r; },
-  RArcData: function (c, r, a0, a1, rev) { this.c = c; this.r = r; this.a0 = a0; this.a1 = a1; },
-  RTextData: function (pos, p2, h, w, va, ha, dd, ls, lf, text, font) {
-    var a = arguments; this.pos = pos; this.h = h; this.text = text; this.font = font;
-    // accept only the 15-arg signature (without fontFile) to exercise the fallback
-    if (a.length === 16) throw new Error('bad signature');
-    this.ang = a[13];
-  },
-  RLineEntity: function (doc, d) { return new Ent('line', d); },
-  RCircleEntity: function (doc, d) { return new Ent('circle', d); },
-  RArcEntity: function (doc, d) { return new Ent('arc', d); },
-  RTextEntity: function (doc, d) { return new Ent('text', d); },
-  RAddObjectOperation: function () {
-    this.objs = [];
-    this.addObject = function (o) { this.objs.push(o); };
-    this.setText = function () {};
-  },
-  QInputDialog: { getDouble: function (p, t, l, def) { return /Diameter/.test(l) ? D : LAT; } },
-  EAction: {
-    getMainWindow: function () { return {}; },
-    getDocumentInterface: function () {
-      return {
-        getDocument: function () {
-          return { hasLayer: function (n) { return !!layers[n]; },
-                   getLayerId: function (n) { return layers[n] || (layers[n] = nextId++); },
-                   getLinetypeId: function () { return 0; } };
-        },
-        applyOperation: function (op) {
-          op.objs.forEach(function (o) {
-            if (o.name) { layers[o.name] = nextId++; layerObjs.push(o); }
-            else { ents.push(o); }
-          });
-        },
-        autoZoom: function () {}
-      };
-    }
-  }
-};
-g.RLayer.prototype.setColor = function () {};
-vm.createContext(g);
-vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'astrolabe.js'), 'utf8'), g);
-var G = g.__ASTROLABE_TEST__.geom;
-var layerName = {}; Object.keys(layers).forEach(function (n) { layerName[layers[n]] = n; });
-ents.forEach(function (e) { e.L = layerName[e.layer]; });
+var M = mock.run(path.join(__dirname, '..', 'astrolabe.js'),
+                 function (label) { return /Diameter/.test(label) ? D : LAT; });
+var ents = M.ents, layers = M.layers, layerObjs = M.layerObjs, g = M.g, G = M.geom;
 
 var rad = function (d) { return d * Math.PI / 180; }, deg = function (r) { return r * 180 / Math.PI; };
 var fails = 0;
