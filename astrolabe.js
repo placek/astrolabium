@@ -25,11 +25,12 @@
  *
  * and a second, printable layout of the same three scales in the historical
  * manner - concentric rings, one resolution per ring, the finest against the
- * scale's base line:
+ * scale's base line, every ring of the same width (ringW):
  *
  *     Print_Zodiac (the rete's only scale, rings inwards from the ecliptic
- *     line, with the Aries 0 mark), Print_Limb (1 / 5 / 10 degree rings on
- *     Capricorn), Print_Moon, Print_Longitude and Print_Calendar (the mater's
+ *     line; sign names and the Aries 0 mark are its only text),
+ *     Print_Limb (1 / 5 / 10 degree rings on Capricorn),
+ *     Print_Moon, Print_Longitude and Print_Calendar (the mater's
  *     band outside the limb, graduated in ecliptic longitude about the pole),
  *     Print_Index (the same as parallel bands beside the fiducial line)
  *
@@ -213,9 +214,14 @@ include("scripts/EAction.js");
     var Req = Rc / Math.tan(rad(45 + eps / 2));      // Equator
     var Rcan = Req * Math.tan(rad(45 - eps / 2));    // Tropic of Cancer
     var calOut = 0.075 * Rc;                         // calendar reach outside the ecliptic
-    var limbW = 0.080 * Rc;                          // depth of the limb's 360 deg scale
+    // Every ring of every printable scale is one and the same width, so the
+    // whole engraved layout is built from one module.  Three rings make the
+    // limb, three the rete's zodiac, six the mater's outer band.
+    var ringW = 0.018 * Rc;                          // one ring of a printable scale
+    var ringTextH = 0.012 * Rc;                      // its lettering, the same everywhere
+    var limbW = 3 * ringW;                           // depth of the limb's 360 deg scale
     var Rl = Rc + limbW;                             // outer end of the limb scale
-    var outerW = 0.140 * Rc;                         // the mater's band outside the limb
+    var outerW = 6 * ringW;                          // the mater's band outside the limb
     var Rout = Rl + outerW;                          // outermost circle of the drawing
 
     // signed polar distance along the meridian (positive towards +Y) -> Y
@@ -737,24 +743,23 @@ include("scripts/EAction.js");
     // 4d. PRINT_ZODIAC: the rete's only scale, as rings
     // =======================================================================
     // The rete has to leave the tympanum visible, so it carries the zodiac
-    // alone - 1 deg, 5 deg with numbers, signs - 0.074 Rc deep inwards from the
-    // ecliptic line, hiding a tenth of the plate instead of a fifth.  The
-    // calendar and the Moon sit outside the limb instead (section 5c).
+    // alone - 1 deg, 5 deg, signs - three rings deep inwards from the ecliptic
+    // line, and nothing else.  The calendar and the Moon sit outside the limb
+    // instead (section 5c).
     (function printZodiac() {
-        var z1 = [], z5 = [], z5Lab = [], zSign = [], zSignLab = [];
+        var z1 = [], z5 = [], zSign = [], zSignLab = [];
         for (var lo = 0; lo < 360; lo++) {
             var az = eclRay(lo).ang;
             z1.push(az);
             if (lo % 5 === 0) { z5.push(az); }
-            if (lo % 10 === 0 && lo % 30 !== 0) { z5Lab.push({ a: az, s: lo % 30 }); }
             if (lo % 30 === 0) { zSign.push(az); }
         }
         for (var sg = 0; sg < 12; sg++) { zSignLab.push({ a: eclRay(sg * 30 + 15).ang, s: SIGNS[sg] }); }
         ringBand("Print_Zodiac", 0, eclCy,
-                 [Re, Re - 0.018 * Rc, Re - 0.044 * Rc, Re - 0.074 * Rc],
+                 [Re, Re - ringW, Re - 2 * ringW, Re - 3 * ringW],
                  [{ angles: z1 },
-                  { angles: z5, labels: z5Lab, textH: 0.013 * Rc },
-                  { angles: zSign, labels: zSignLab, textH: 0.017 * Rc }], true);
+                  { angles: z5 },
+                  { angles: zSign, labels: zSignLab, textH: ringTextH }], true);
 
         // Start of the zodiac: Aries 0, where the ecliptic crosses the equator.
         // Every ring already has a division on this ray, so only the stub
@@ -798,7 +803,7 @@ include("scripts/EAction.js");
         addLine("Limb", Rc * ct, Rc * st, (Rc + tlen) * ct, (Rc + tlen) * st);
         if (g % 10 === 0) {
             var rr = Rc + (limbW + 0.035 * Rc) / 2;   // between the ticks and the outer end
-            addTangentText("Limb", rr * ct, rr * st, th, 0.026 * Rc, g);
+            addTangentText("Limb", rr * ct, rr * st, th, 0.018 * Rc, g);
         }
     }
 
@@ -814,10 +819,10 @@ include("scripts/EAction.js");
             if (g2 % 10 === 0) { deg10.push(th2); lab.push({ a: th2, s: g2 }); }
         }
         ringBand("Print_Limb", 0, 0,
-                 [Rc, Rc + 0.022 * Rc, Rc + 0.044 * Rc, Rl],
+                 [Rc, Rc + ringW, Rc + 2 * ringW, Rl],
                  [{ angles: deg1 },
                   { angles: deg5 },
-                  { angles: deg10, labels: lab, textH: 0.018 * Rc }], false);
+                  { angles: deg10, labels: lab, textH: ringTextH }], false);
     })();
 
     // =======================================================================
@@ -852,17 +857,17 @@ include("scripts/EAction.js");
         }
 
         // each scale owns the rings it adds; the limb already drew Rl
-        ringBand("Print_Moon", 0, 0, [Rl, Rl + 0.022 * Rc],
+        ringBand("Print_Moon", 0, 0, [Rl, Rl + ringW],
                  [{ angles: moonO }], true);
         ringBand("Print_Longitude", 0, 0,
-                 [Rl + 0.022 * Rc, Rl + 0.052 * Rc, Rl + 0.078 * Rc, Rl + 0.094 * Rc],
-                 [{ angles: signO, labels: signLabO, textH: 0.017 * Rc },
-                  { angles: d5, labels: d5Lab, textH: 0.013 * Rc },
+                 [Rl + ringW, Rl + 2 * ringW, Rl + 3 * ringW, Rl + 4 * ringW],
+                 [{ angles: signO, labels: signLabO, textH: ringTextH },
+                  { angles: d5, labels: d5Lab, textH: ringTextH },
                   { angles: d1 }], true);
         ringBand("Print_Calendar", 0, 0,
-                 [Rl + 0.094 * Rc, Rl + 0.112 * Rc, Rout],
+                 [Rl + 4 * ringW, Rl + 5 * ringW, Rout],
                  [{ angles: dayO },
-                  { angles: monDivO, labels: monLabO, textH: 0.017 * Rc }], true);
+                  { angles: monDivO, labels: monLabO, textH: ringTextH }], true);
     })();
 
     // =======================================================================
@@ -914,7 +919,7 @@ include("scripts/EAction.js");
         function line(u1, v1, u2, v2) {
             addLine("Print_Index", gx(u1, v1), gy(u1, v1), gx(u2, v2), gy(u2, v2));
         }
-        var bounds = [0, 0.022 * Rc, 0.044 * Rc, 0.080 * Rc];   // across the rule
+        var bounds = [0, ringW, 2 * ringW, 3 * ringW];          // across the rule
         var flip = Math.cos(ia) < -1e-9;
         var uMin = 1e30, uMax = -1e30, decs = [];
         for (var dec = 89; dec >= -89; dec--) {
@@ -932,7 +937,7 @@ include("scripts/EAction.js");
             line(u, 0, u, top);
             if (d % 10 === 0) {
                 var vm = (bounds[2] + bounds[3]) / 2;
-                addText("Print_Index", gx(u, vm), gy(u, vm), 0.016 * Rc, d, ia + (flip ? PI : 0));
+                addText("Print_Index", gx(u, vm), gy(u, vm), ringTextH, d, ia + (flip ? PI : 0));
             }
         }
     })();
@@ -956,6 +961,7 @@ include("scripts/EAction.js");
             Req: Req, Rcan: Rcan, Rc: Rc, Rl: Rl, Re: Re, calOut: calOut, zodIn: zodIn, limbW: limbW,
             eclCy: eclCy, phi: phi, eps: eps, year: cfg.calendarYear,
             synodicMonth: cfg.synodicMonth, moonTop: moonTop, Rout: Rout,
+            ringW: ringW, ringTextH: ringTextH, outerW: outerW,
             analemmaHours: cfg.analemmaHours,
             plateFromEcliptic: plateFromEcliptic, sunLongitude: sunLongitude, julianDay: julianDay
         };
